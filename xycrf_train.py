@@ -28,12 +28,17 @@
 # Many thanks.
 import argparse
 from xycrf import XyCrf
+from conll_feature_functions import feature_function_set
 
 parser = argparse.ArgumentParser()
 parser.add_argument("datafile", help="data file for training input")
 parser.add_argument("modelfile", help="the model file name. (output)")
 
+
 args = parser.parse_args()
 
 crf = XyCrf()
-crf.train_from_file(args.datafile, args.modelfile)
+
+crf.train_from_file(corpus_filename=args.datafile,
+                    feature_functions=feature_function_set,
+                    model_filename=args.modelfile)

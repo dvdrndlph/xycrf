@@ -97,12 +97,20 @@ def _read_corpus(file_name):
 class XyCrf():
     def __init__(self):
         self.squared_sigma = 10.0
+        self.training_data = None
         self.feature_functions = []
         self.tag_count = 0
         self.tags = []
         self.feature_count = 0  # Number of global feature functions.
         self.weights = []
+        self.tag_index_for_name = dict()
+        self.tag_name_for_index = dict()
 
+    def set_tags(self, tag_list: list):
+        self.tags = tag_list
+        self.tags.append('START')
+        self.tags.append('STOP')
+        self.tag_count = len(self.tags)
         self.tag_index_for_name = dict()
         self.tag_name_for_index = dict()
         tag_index = 0
@@ -110,12 +118,6 @@ class XyCrf():
             self.tag_index_for_name[tag_name] = tag_index
             self.tag_name_for_index[tag_index] = tag_name
             tag_index += 1
-
-    def set_tags(self, tag_list: list):
-        self.tags = tag_list
-        self.tags.append('START')
-        self.tags.append('STOP')
-        self.tag_count = len(self.tags)
 
     def get_g_i(self, y_prev, y, X, i):
         j = 0
@@ -157,6 +159,15 @@ class XyCrf():
         self.feature_functions.append(func)
         self.feature_count += 1
         self.weights.append(0.0)
+
+    def clear_feature_functions(self):
+        self.feature_functions = []
+        self.feature_count = 0
+        self.weights = []
+
+    def add_feature_functions(self, functions):
+        for func in functions:
+            self.add_feature_function(func=func)
 
     def viterbi(self, X, g_list):
         # Modeled after Seong-Jin Kim's implementation.
@@ -223,7 +234,7 @@ class XyCrf():
                 print('* Reason: %s' % (information['task']))
         print('* Likelihood: %s' % str(log_likelihood))
 
-    def train_from_file(self, corpus_filename, model_filename):
+    def train_from_file(self, corpus_filename, feature_functions, model_filename):
         """
         Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
         """
@@ -234,6 +245,8 @@ class XyCrf():
         print("* Reading training data ... ", end="")
         training_data, tag_set = _read_corpus(corpus_filename)
         self.set_tags(tag_list=list(tag_set))
+        self.add_feature_functions(feature_functions)
+        self.training_data = training_data
         print("Done")
 
         print("* Number of labels: {}".format(self.tag_count))
