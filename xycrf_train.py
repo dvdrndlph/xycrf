@@ -29,12 +29,11 @@
 import argparse
 from xycrf import XyCrf
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument("datafile", help="data file for training input")
-    parser.add_argument("modelfile", help="the model file name. (output)")
+parser = argparse.ArgumentParser()
+parser.add_argument("datafile", help="data file for training input")
+parser.add_argument("modelfile", help="the model file name. (output)")
 
-    args = parser.parse_args()
+args = parser.parse_args()
 
-    crf = XyCrf()
-    crf.train(args.datafile, args.modelfile)
+crf = XyCrf()
+crf.train_from_file(args.datafile, args.modelfile)

@@ -26,8 +26,11 @@ __author__ = 'David Randolph'
 # Some methods and program structure inspired by (borrowed from)
 # Seong-Jin Kim's crf package (https://github.com/lancifollia/crf).
 # Many thanks.
-from abc import ABC, abstractmethod
+import json
+import time
 from collections import Counter
+from datetime import datetime
+
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 from math import log
@@ -61,14 +64,42 @@ def _gradient(params, *args):
     return GRADIENT * -1
 
 
-class XyCrf(ABC):
-    def __init__(self, tags: list):
+def _read_corpus(file_name):
+    """
+    Read a corpus file with a format used in CoNLL.
+    """
+    data = list()
+    data_string_list = list(open(file_name))
+    tag_set = set()
+    element_size = 0
+    X = list()
+    Y = list()
+    for data_string in data_string_list:
+        words = data_string.strip().split()
+        if len(words) == 0:
+            data.append((X, Y))
+            X = list()
+            Y = list()
+        else:
+            if element_size == 0:
+                element_size = len(words)
+            elif element_size is not len(words):
+                raise Exception("Bad file format.")
+            X.append(words[:-1])
+            Y.append(words[-1])
+            tag_set.add(words[-1])
+    if len(X) > 0:
+        data.append((X, Y))
+
+    return data, tag_set
+
+
+class XyCrf():
+    def __init__(self):
         self.squared_sigma = 10.0
         self.feature_functions = []
-        self.tags = tags
-        self.tags.append('START')
-        self.tags.append('STOP')
-        self.tag_count = len(tags)
+        self.tag_count = 0
+        self.tags = []
         self.feature_count = 0  # Number of global feature functions.
         self.weights = []
 
@@ -79,6 +110,12 @@ class XyCrf(ABC):
             self.tag_index_for_name[tag_name] = tag_index
             self.tag_name_for_index[tag_index] = tag_name
             tag_index += 1
+
+    def set_tags(self, tag_list: list):
+        self.tags = tag_list
+        self.tags.append('START')
+        self.tags.append('STOP')
+        self.tag_count = len(self.tags)
 
     def get_g_i(self, y_prev, y, X, i):
         j = 0
@@ -166,7 +203,7 @@ class XyCrf(ABC):
         expected_scores = np.zeros(self.feature_count)
         sum_log_Z = 0
 
-    def train(self, X, Y):
+    def train(self, data):
         print('* Squared sigma:', self.squared_sigma)
         print('* Start L-BGFS')
         print('   ========================')
@@ -176,7 +213,6 @@ class XyCrf(ABC):
             fmin_l_bfgs_b(func=_log_conditional_likelihood, fprime=_gradient,
                           x0=np.zeros(self.feature_count), args=[self],
                           callback=_training_callback)
-        # training_data, feature_set, training_feature_data, empirical_counts, label_dic, squared_sigma
         print('   ========================')
         print('   (iter: iteration, sit: sub iteration)')
         print('* Training has been finished with %d iterations' % information['nit'])
@@ -187,7 +223,33 @@ class XyCrf(ABC):
                 print('* Reason: %s' % (information['task']))
         print('* Likelihood: %s' % str(log_likelihood))
 
+    def train_from_file(self, corpus_filename, model_filename):
+        """
+        Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
+        """
+        start_time = time.time()
+        print('[%s] Start training' % datetime.now())
+
+        # Read the training corpus
+        print("* Reading training data ... ", end="")
+        training_data, tag_set = _read_corpus(corpus_filename)
+        self.set_tags(tag_list=list(tag_set))
+        print("Done")
+
+        print("* Number of labels: {}".format(self.tag_count))
+        print("* Number of features: {}".format(self.feature_count))
+
+        # Estimates parameters to maximize log-likelihood of the corpus.
+        # self.train(data=training_data)
+
+        # self.save_model(model_filename)
+
+        elapsed_time = time.time() - start_time
+        print('* Elapsed time: %f' % elapsed_time)
+        print('* [%s] Training done' % datetime.now())
+
 
 if __name__ == '__main__':
-    tags = ['>1', '>2', '>3', '>4', '>5']
-    xyc = XyCrf(tags=tags)
+    rh_tags = ['>1', '>2', '>3', '>4', '>5']
+    xyc = XyCrf()
+    xyc.set_tags(tag_list=rh_tags)

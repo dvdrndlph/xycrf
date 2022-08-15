@@ -38,5 +38,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     crf = XyCrf()
-    crf.load(args.modelfile)
+    crf.load_model(args.modelfile)
     crf.test(args.datafile)
