@@ -26,7 +26,8 @@ __author__ = 'David Randolph'
 # Some methods and program structure inspired by (borrowed from)
 # Seong-Jin Kim's crf package (https://github.com/lancifollia/crf).
 # Many thanks.
-import json
+from conll_feature_functions import unigram_func_factory, bigram_func_factory, pos_trigram_func_factory
+from nltk import ngrams
 import time
 from collections import Counter
 from datetime import datetime
@@ -64,13 +65,29 @@ def _gradient(params, *args):
     return GRADIENT * -1
 
 
-def _read_corpus(file_name):
+def _augment_ngram_sets(X, ngram_sets, ns):
+    track_count = len(X[0])
+    for track_index in range(track_count):
+        for n in ns:
+            if (track_index, n) not in ngram_sets:
+                ngram_sets[(track_index, n)] = set()
+            token_list = list()
+            for vector in X:
+                token_list.append(vector[track_index])
+            new_grams = ngrams(token_list, n)
+            for gram in new_grams:
+                ngram_sets[(track_index, n)].add(tuple(gram))
+
+
+def _read_corpus(file_name, ns):
     """
     Read a corpus file with a format used in CoNLL.
     """
     data = list()
     data_string_list = list(open(file_name))
     tag_set = set()
+    ngram_sets = dict()
+    pos_ngram_sets = dict()
     element_size = 0
     X = list()
     Y = list()
@@ -78,6 +95,7 @@ def _read_corpus(file_name):
         words = data_string.strip().split()
         if len(words) == 0:
             data.append((X, Y))
+            _augment_ngram_sets(X=X, ngram_sets=ngram_sets, ns=ns)
             X = list()
             Y = list()
         else:
@@ -90,8 +108,9 @@ def _read_corpus(file_name):
             tag_set.add(words[-1])
     if len(X) > 0:
         data.append((X, Y))
+        _augment_ngram_sets(X=X, ngram_sets=ngram_sets, ns=ns)
 
-    return data, tag_set
+    return data, tag_set, ngram_sets
 
 
 class XyCrf():
@@ -99,6 +118,7 @@ class XyCrf():
         self.squared_sigma = 10.0
         self.training_data = None
         self.feature_functions = []
+        self.function_by_name = dict()
         self.tag_count = 0
         self.tags = []
         self.feature_count = 0  # Number of global feature functions.
@@ -155,13 +175,17 @@ class XyCrf():
             g_list.append(g_i)
         return g_list
 
-    def add_feature_function(self, func):
+    def add_feature_function(self, func, name=None):
         self.feature_functions.append(func)
+        if name is None:
+            name = "f_{}".format(self.feature_count)
+        self.function_by_name[name] = func
         self.feature_count += 1
         self.weights.append(0.0)
 
     def clear_feature_functions(self):
         self.feature_functions = []
+        self.function_by_name = {}
         self.feature_count = 0
         self.weights = []
 
@@ -234,7 +258,44 @@ class XyCrf():
                 print('* Reason: %s' % (information['task']))
         print('* Likelihood: %s' % str(log_likelihood))
 
-    def train_from_file(self, corpus_filename, feature_functions, model_filename):
+    def add_unigram_functions(self, ngram_sets):
+        for (track_index, n) in ngram_sets:
+            if n != 1:
+                continue
+            unigram_set = ngram_sets[(track_index, n)]
+            for unigram in unigram_set:
+                token = unigram[0]
+                for offset in (-2, -1, 0, 1, 2):
+                    name = "unigram_{}_track_{}_{}".format(offset, track_index, token)
+                    func = unigram_func_factory(token=token, track_index=track_index, offset=offset)
+                    # result = func(y_prev=None, y=None, X=[[token, 'foo']], i=0)
+                    self.add_feature_function(func=func, name=name)
+
+    def add_bigram_functions(self, ngram_sets):
+        for (track_index, n) in ngram_sets:
+            if n != 2:
+                continue
+            bigram_set = ngram_sets[(track_index, n)]
+            for bigram in bigram_set:
+                for offset in (-2, -1, 0, 1, 2):
+                    name = "bigram_{}_track_{}_{}-{}".format(offset, track_index, bigram[0], bigram[1])
+                    func = bigram_func_factory(bigram=bigram, track_index=track_index, offset=offset)
+                    self.add_feature_function(func=func, name=name)
+
+    def add_trigram_functions(self, ngram_sets):
+        for (track_index, n) in ngram_sets:
+            if n != 3:
+                continue
+            if track_index != 1:
+                continue  # trigrams only for pos track
+            trigram_set = ngram_sets[(track_index, n)]
+            for trigram in trigram_set:
+                for offset in (0, 1, 2):
+                    name = "pos_trigram_{}_{}-{}-{}".format(offset, track_index, trigram[0], trigram[1], trigram[2])
+                    func = pos_trigram_func_factory(trigram=trigram, offset=offset)
+                    self.add_feature_function(func=func, name=name)
+
+    def train_from_file(self, corpus_filename, model_filename):
         """
         Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
         """
@@ -243,9 +304,11 @@ class XyCrf():
 
         # Read the training corpus
         print("* Reading training data ... ", end="")
-        training_data, tag_set = _read_corpus(corpus_filename)
+        training_data, tag_set, ngram_sets = _read_corpus(corpus_filename, ns=[1, 2, 3])
         self.set_tags(tag_list=list(tag_set))
-        self.add_feature_functions(feature_functions)
+        self.add_unigram_functions(ngram_sets)
+        self.add_bigram_functions(ngram_sets)
+        self.add_trigram_functions(ngram_sets)
         self.training_data = training_data
         print("Done")
 

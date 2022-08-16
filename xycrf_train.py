@@ -28,7 +28,6 @@
 # Many thanks.
 import argparse
 from xycrf import XyCrf
-from conll_feature_functions import feature_function_set
 
 parser = argparse.ArgumentParser()
 parser.add_argument("datafile", help="data file for training input")
@@ -39,6 +38,4 @@ args = parser.parse_args()
 
 crf = XyCrf()
 
-crf.train_from_file(corpus_filename=args.datafile,
-                    feature_functions=feature_function_set,
-                    model_filename=args.modelfile)
+crf.train_from_file(corpus_filename=args.datafile, model_filename=args.modelfile)
