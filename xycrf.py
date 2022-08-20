@@ -1,6 +1,5 @@
 __author__ = 'David Randolph'
 # Copyright (c) 2022 David A. Randolph.
-# Copyright (c) 2015 Seong-Jin Kim.
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation
@@ -23,9 +22,6 @@ __author__ = 'David Randolph'
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 #
-# Some methods and program structure inspired by (borrowed from)
-# Seong-Jin Kim's crf package (https://github.com/lancifollia/crf).
-# Many thanks.
 from conll_feature_functions import unigram_func_factory, bigram_func_factory, pos_trigram_func_factory
 from nltk import ngrams
 import time
@@ -34,7 +30,7 @@ from datetime import datetime
 
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
-from math import log
+from math import log, exp
 
 SCALING_THRESHOLD = 1e250
 
@@ -65,14 +61,14 @@ def _gradient(params, *args):
     return GRADIENT * -1
 
 
-def _augment_ngram_sets(X, ngram_sets, ns):
-    track_count = len(X[0])
+def _augment_ngram_sets(x_bar, ngram_sets, ns):
+    track_count = len(x_bar[0])
     for track_index in range(track_count):
         for n in ns:
             if (track_index, n) not in ngram_sets:
                 ngram_sets[(track_index, n)] = set()
             token_list = list()
-            for vector in X:
+            for vector in x_bar:
                 token_list.append(vector[track_index])
             new_grams = ngrams(token_list, n)
             for gram in new_grams:
@@ -89,26 +85,26 @@ def _read_corpus(file_name, ns):
     ngram_sets = dict()
     pos_ngram_sets = dict()
     element_size = 0
-    X = list()
-    Y = list()
+    x_bar = list()
+    y_bar = list()
     for data_string in data_string_list:
         words = data_string.strip().split()
         if len(words) == 0:
-            data.append((X, Y))
-            _augment_ngram_sets(X=X, ngram_sets=ngram_sets, ns=ns)
-            X = list()
-            Y = list()
+            data.append((x_bar, y_bar))
+            _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
+            x_bar = list()
+            y_bar = list()
         else:
             if element_size == 0:
                 element_size = len(words)
             elif element_size is not len(words):
                 raise Exception("Bad file format.")
-            X.append(words[:-1])
-            Y.append(words[-1])
+            x_bar.append(words[:-1])
+            y_bar.append(words[-1])
             tag_set.add(words[-1])
-    if len(X) > 0:
-        data.append((X, Y))
-        _augment_ngram_sets(X=X, ngram_sets=ngram_sets, ns=ns)
+    if len(x_bar) > 0:
+        data.append((x_bar, y_bar))
+        _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
 
     return data, tag_set, ngram_sets
 
@@ -125,6 +121,7 @@ class XyCrf():
         self.weights = []
         self.tag_index_for_name = dict()
         self.tag_name_for_index = dict()
+        self.g_matrix_list = []
 
     def set_tags(self, tag_list: list):
         self.tags = tag_list
@@ -139,39 +136,39 @@ class XyCrf():
             self.tag_name_for_index[tag_index] = tag_name
             tag_index += 1
 
-    def get_g_i(self, y_prev, y, X, i):
+    def get_g_i(self, y_prev, y, x_bar, i):
         j = 0
         value = 0
         for func in self.feature_functions:
             weight = self.weights[j]
-            value += weight * func(y_prev, y, X, i)
+            value += weight * func(y_prev, y, x_bar, i)
         return value
 
-    def get_g_i_dict(self, X, i):
+    def get_g_i_dict(self, x_bar, i):
         # Our matrix is a dictionary
         g_i_dict = dict()
         for y_prev in self.tags:
             for y in self.tags:
                 if not (y_prev in ('START', 'STOP') and y in ('START', 'STOP')):
-                    g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, X, i)
+                    g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
-    def get_g_matrix_list(self, X):
-        g_list = list()
-        for i in range(len(X)):
+    def set_g_matrix_list(self, x_bar):
+        self.g_matrix_list = list()
+        for i in range(len(x_bar)):
             matrix = np.zeros((self.tag_count, self.tag_count))
-            g_i = self.get_g_i_dict(X, i)
+            g_i = self.get_g_i_dict(x_bar, i)
             for (y_prev, y) in g_i:
                 y_prev_index = self.tag_index_for_name[y_prev]
                 y_index = self.tag_index_for_name[y]
                 matrix[y_prev_index, y_index] = g_i[(y_prev, y)]
-            g_list.append(matrix)
-        return g_list
+            self.g_matrix_list.append(matrix)
+        return self.g_matrix_list
 
-    def get_inference_g_list(self, X):
+    def get_inference_g_list(self, x_bar):
         g_list = list()
-        for i in range(len(X)):
-            g_i = self.get_g_i_dict(X, i)
+        for i in range(len(x_bar)):
+            g_i = self.get_g_i_dict(x_bar, i)
             g_list.append(g_i)
         return g_list
 
@@ -193,9 +190,9 @@ class XyCrf():
         for func in functions:
             self.add_feature_function(func=func)
 
-    def viterbi(self, X, g_list):
+    def viterbi(self, x_bar, g_list):
         # Modeled after Seong-Jin Kim's implementation.
-        time_len = len(X)
+        time_len = len(x_bar)
         max_table = np.zeros((time_len, self.tag_count))
         argmax_table = np.zeros((time_len, self.tag_count), dtype='int64')
 
@@ -226,9 +223,61 @@ class XyCrf():
         # return [self.label_dic[label_id] for label_id in sequence[::-1][1:]]
         return sequence
 
-    def infer(self, X):
-        g_list = self.get_inference_g_list(X)
-        y_hat = self.viterbi(X, g_list)
+    def alpha(self, k_plus_1, v_tag_index):
+        if k_plus_1 == 0:
+            if v_tag_index == self.tag_index_for_name['START']:
+                return 1.0
+            else:
+                return 0.0
+        k = k_plus_1 - 1
+        sum_total = 0.0
+        for u_tag_index in self.tag_name_for_index:
+            sum_total += self.alpha(k, u_tag_index) * \
+                (exp(self.g_matrix_list[k+1][u_tag_index, v_tag_index]))
+        return sum_total
+
+    def beta(self, u_tag_index, k):
+        n = len(self.g_matrix_list)  # Length of the sequence
+        if k == n + 1:
+            if u_tag_index == self.tag_index_for_name['STOP']:
+                return 1.0
+            else:
+                return 0.0
+        sum_total = 0
+        for v_tag_index in self.tag_name_for_index:
+            sum_total += exp(self.g_matrix_list[k+1][u_tag_index, v_tag_index]) * \
+                self.beta(v_tag_index, k+1)
+
+    def zed_forward(self, x_bar):
+        n = len(self.g_matrix_list)
+        Z = self.alpha(n+1, self.tag_index_for_name['STOP'])
+        return Z
+
+    def zed_backward(self, x_bar):
+        Z = self.beta(self.tag_index_for_name['START'], 0)
+        return Z
+
+    def label_expectation_for_function(self, x_bar, y_bar, j):
+        n = len(self.g_matrix_list)
+        zed = self.zed_forward(x_bar)
+        expectation = 0.0
+        for i in range(1, n+2):
+            for y_index_minus_1 in range(0, n+1):
+                for y_index in range(1, n+2):
+                    y_prev = y_bar[y_index_minus_1]
+                    y_prev_tag_index = self.tag_index_for_name[y_prev]
+                    y = y_bar[y_index]
+                    y_tag_index = self.tag_index_for_name[y]
+                    feature_value = self.feature_functions[j](y_prev=y_prev, y=y, x_bar=x_bar, i=y_index)
+                    alpha_value = self.alpha(k_plus_1=y_index_minus_1, v_tag_index=y_prev_tag_index)
+                    exp_g_i_value = exp(self.g_matrix_list[y_index][y_index_minus_1, y_index])
+                    beta_value = self.beta(u_tag_index=y_tag_index, k=y_index)
+                    expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / zed)
+        return expectation
+
+    def infer(self, x_bar):
+        g_list = self.get_inference_g_list(x_bar)
+        y_hat = self.viterbi(x_bar, g_list)
         return y_hat
 
     def forward_backward(self):
@@ -268,7 +317,7 @@ class XyCrf():
                 for offset in (-2, -1, 0, 1, 2):
                     name = "unigram_{}_track_{}_{}".format(offset, track_index, token)
                     func = unigram_func_factory(token=token, track_index=track_index, offset=offset)
-                    # result = func(y_prev=None, y=None, X=[[token, 'foo']], i=0)
+                    # result = func(y_prev=None, y=None, x_bar=[[token, 'foo']], i=0)
                     self.add_feature_function(func=func, name=name)
 
     def add_bigram_functions(self, ngram_sets):
