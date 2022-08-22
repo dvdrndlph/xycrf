@@ -54,11 +54,12 @@ def _log_conditional_likelihood(params, *args):
     Calculate likelihood and gradient
     """
     xycrf = args[0]
-    xycrf.log_likelihood()
+    return xycrf.log_likelihood()
 
 
 def _gradient(params, *args):
-    return GRADIENT * -1
+    xycrf = args[0]
+    return xycrf.get_gradient()
 
 
 def _augment_ngram_sets(x_bar, ngram_sets, ns):
@@ -85,15 +86,17 @@ def _read_corpus(file_name, ns):
     ngram_sets = dict()
     pos_ngram_sets = dict()
     element_size = 0
-    x_bar = list()
-    y_bar = list()
+    x_bar = [[]]
+    y_bar = ['START']
     for data_string in data_string_list:
         words = data_string.strip().split()
         if len(words) == 0:
+            x_bar.append([])
+            y_bar.append('STOP')
             data.append((x_bar, y_bar))
             _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
-            x_bar = list()
-            y_bar = list()
+            x_bar = [[]]
+            y_bar = ['START']
         else:
             if element_size == 0:
                 element_size = len(words)
@@ -102,7 +105,9 @@ def _read_corpus(file_name, ns):
             x_bar.append(words[:-1])
             y_bar.append(words[-1])
             tag_set.add(words[-1])
-    if len(x_bar) > 0:
+    if len(y_bar) > 1:
+        x_bar.append([])
+        y_bar.append('STOP')
         data.append((x_bar, y_bar))
         _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
 
@@ -115,6 +120,8 @@ class XyCrf():
         self.training_data = None
         self.feature_functions = []
         self.function_by_name = dict()
+        self.function_name_index = dict()
+        self.function_index_name = dict()
         self.tag_count = 0
         self.tags = []
         self.feature_count = 0  # Number of global feature functions.
@@ -122,6 +129,17 @@ class XyCrf():
         self.tag_index_for_name = dict()
         self.tag_name_for_index = dict()
         self.g_matrix_list = []
+        self.gradient = None
+
+    def get_gradient(self):
+        return self.gradient
+
+    def set_gradient(self, new_values):
+        if len(new_values) != self.feature_count:
+            raise Exception("Bad gradient settings.")
+        self.gradient = np.ndarray((self.feature_count,))
+        for i in range(self.feature_count):
+            self.gradient[i] = new_values[i]
 
     def set_tags(self, tag_list: list):
         self.tags = tag_list
@@ -177,20 +195,70 @@ class XyCrf():
         if name is None:
             name = "f_{}".format(self.feature_count)
         self.function_by_name[name] = func
+        self.function_name_index[name] = self.feature_count
+        self.function_index_name[self.feature_count] = name
         self.feature_count += 1
-        self.weights.append(0.0)
+        self.weights.append(1.0)
 
     def clear_feature_functions(self):
         self.feature_functions = []
         self.function_by_name = {}
+        self.function_name_index = {}
+        self.function_index_name = {}
         self.feature_count = 0
         self.weights = []
+
+    def init_weights(self):
+        big_j = len(self.feature_functions)
+        self.weights = list()
+        for j in range(big_j):
+            self.weights.append(1.0)
 
     def add_feature_functions(self, functions):
         for func in functions:
             self.add_feature_function(func=func)
 
+    def big_u(self, k, v_tag_index):
+        if k == 0:
+            if self.tag_name_for_index[v_tag_index] == 'START':
+                return 1.0
+            else:
+                return 0.0  # ???
+        max_value = -1 * float('inf')
+        max_tag_index = None
+        for u_tag_index in self.tag_name_for_index:
+            value = self.big_u(k-1, u_tag_index) + self.g_matrix_list[k][u_tag_index, v_tag_index]
+            if value > max_value:
+                max_value = value
+                max_u_tag_index = u_tag_index
+        return max_value, u_tag_index
+
     def viterbi(self, x_bar, g_list):
+        n = len(x_bar)
+
+        big_u_dict = dict()
+        for k in range(1, n):
+            for v_tag in self.tag_index_for_name:
+                v_tag_index = self.tag_index_for_name[v_tag]
+                max_value, max_u_tag_index = self.big_u(k=k, v_tag_index=v_tag_index)
+                big_u_dict[(k, v_tag)] = (max_value, max_u_tag_index)
+
+        y_bar = list()
+        max_value = -1 * float('inf')
+        prior_tag = None
+        for v_tag in self.tag_index_for_name:
+            v_tag_index = self.tag_index_for_name[v_tag]
+            (value, u_tag_index) = big_u_dict[(k, v_tag)]
+            if value < max_value:
+                max_value = value
+                prior_tag = self.tag_name_for_index[u_tag_index]
+        y_bar.append(prior_tag)
+        for k in range(n-1, 1, -1):
+            (prior_max, prior_tag) = big_u_dict[(k, prior_tag)]
+            y_bar.insert(0, prior_tag)
+        return y_bar
+
+    def viterbi_iterative(self, x_bar, g_list):
         # Modeled after Seong-Jin Kim's implementation.
         time_len = len(x_bar)
         max_table = np.zeros((time_len, self.tag_count))
@@ -257,9 +325,9 @@ class XyCrf():
         Z = self.beta(self.tag_index_for_name['START'], 0)
         return Z
 
-    def label_expectation_for_function(self, x_bar, y_bar, j):
+    def expectation_for_function(self, function_index, x_bar, y_bar):
         n = len(self.g_matrix_list)
-        zed = self.zed_forward(x_bar)
+        big_z = self.zed_forward(x_bar)
         expectation = 0.0
         for i in range(1, n+2):
             for y_index_minus_1 in range(0, n+1):
@@ -268,26 +336,71 @@ class XyCrf():
                     y_prev_tag_index = self.tag_index_for_name[y_prev]
                     y = y_bar[y_index]
                     y_tag_index = self.tag_index_for_name[y]
-                    feature_value = self.feature_functions[j](y_prev=y_prev, y=y, x_bar=x_bar, i=y_index)
+                    feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=y_index)
                     alpha_value = self.alpha(k_plus_1=y_index_minus_1, v_tag_index=y_prev_tag_index)
                     exp_g_i_value = exp(self.g_matrix_list[y_index][y_index_minus_1, y_index])
                     beta_value = self.beta(u_tag_index=y_tag_index, k=y_index)
-                    expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / zed)
-        return expectation
+                    expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / big_z)
+        return expectation, big_z
 
     def infer(self, x_bar):
         g_list = self.get_inference_g_list(x_bar)
         y_hat = self.viterbi(x_bar, g_list)
         return y_hat
 
-    def forward_backward(self):
-        pass
+    def big_f(self, function_index, x_bar, y_bar):
+        n = len(y_bar)
+        func = self.feature_functions[function_index]
+        sum_total = 0
+        for i in range(1, n+2):
+            val = func(y_prev=y_bar[i-1], y=y_bar[i], x_bar=x_bar, i=i)
+            sum_total += val
+        return sum_total
+
+    def gradient_for_all_training(self):
+        function_count = len(self.feature_functions)
+        gradient = list()
+        big_z = 0
+        for example in self.training_data:
+            x_bar = example[0]
+            y_bar = example[1]
+            for j in range(function_count):
+                example_val = self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
+                expected_val, example_zed = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
+                if j not in gradient:
+                    gradient.append(0)
+                gradient[j] += example_val - expected_val
+                big_z += example_zed
+        return gradient, big_z
 
     def log_conditional_likelihood(self):
-        expected_scores = np.zeros(self.feature_count)
-        sum_log_Z = 0
+        gradient, big_z = self.gradient_for_all_training()
+        weighted_feature_sum = 0
+        function_count = len(self.feature_functions)
+        for j in range(function_count):
+            global_feature_val = 0
+            for example in self.training_data:
+                x_bar = example[0]
+                y_bar = example[1]
+                global_feature_val += self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
+            weighted_feature_sum += self.weights[j] * global_feature_val
+        likelihood = weighted_feature_sum - log(big_z)
+        self.set_gradient(gradient)
+        return likelihood
+
+    def stochastic_gradient_ascent_train(self, learning_rate=0.01):
+        function_count = len(self.feature_functions)
+        self.init_weights()
+        for example in self.training_data:
+            x_bar = example[0]
+            y_bar = example[1]
+            for j in range(function_count):
+                global_feature_val = self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
+                expected_val, _ = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
+                self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
 
     def train(self, data):
+        self.init_weights()
         print('* Squared sigma:', self.squared_sigma)
         print('* Start L-BGFS')
         print('   ========================')
@@ -359,13 +472,13 @@ class XyCrf():
         self.add_bigram_functions(ngram_sets)
         self.add_trigram_functions(ngram_sets)
         self.training_data = training_data
-        print("Done")
+        print("Done reading data")
 
         print("* Number of labels: {}".format(self.tag_count))
         print("* Number of features: {}".format(self.feature_count))
 
         # Estimates parameters to maximize log-likelihood of the corpus.
-        # self.train(data=training_data)
+        self.train(data=training_data)
 
         # self.save_model(model_filename)
 
