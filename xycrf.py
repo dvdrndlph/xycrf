@@ -22,6 +22,8 @@ __author__ = 'David Randolph'
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 #
+import copy
+
 from conll_feature_functions import unigram_func_factory, bigram_func_factory, pos_trigram_func_factory
 from nltk import ngrams
 import time
@@ -54,7 +56,7 @@ def _log_conditional_likelihood(params, *args):
     Calculate likelihood and gradient
     """
     xycrf = args[0]
-    return xycrf.log_likelihood()
+    return xycrf.log_conditional_likelihood()
 
 
 def _gradient(params, *args):
@@ -76,6 +78,21 @@ def _augment_ngram_sets(x_bar, ngram_sets, ns):
                 ngram_sets[(track_index, n)].add(tuple(gram))
 
 
+def _append_example(data, ngram_sets, ns, x_bar, y_bar):
+    track_count = len(x_bar[0])
+    x_0 = list()
+    x_last = list()
+    for _ in range(track_count):
+        x_0.append('')
+        x_last.append('')
+    x_bar.insert(0, x_0)
+    x_bar.append(x_last)
+    y_bar.insert(0, 'START')
+    y_bar.append('STOP')
+    data.append((x_bar, y_bar))
+    _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
+
+
 def _read_corpus(file_name, ns):
     """
     Read a corpus file with a format used in CoNLL.
@@ -84,19 +101,15 @@ def _read_corpus(file_name, ns):
     data_string_list = list(open(file_name))
     tag_set = set()
     ngram_sets = dict()
-    pos_ngram_sets = dict()
     element_size = 0
-    x_bar = [[]]
-    y_bar = ['START']
+    x_bar = list()
+    y_bar = list()
     for data_string in data_string_list:
         words = data_string.strip().split()
         if len(words) == 0:
-            x_bar.append([])
-            y_bar.append('STOP')
-            data.append((x_bar, y_bar))
-            _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
-            x_bar = [[]]
-            y_bar = ['START']
+            _append_example(data, ngram_sets, ns, x_bar, y_bar)
+            x_bar = list()
+            y_bar = list()
         else:
             if element_size == 0:
                 element_size = len(words)
@@ -106,17 +119,13 @@ def _read_corpus(file_name, ns):
             y_bar.append(words[-1])
             tag_set.add(words[-1])
     if len(y_bar) > 1:
-        x_bar.append([])
-        y_bar.append('STOP')
-        data.append((x_bar, y_bar))
-        _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
+        _append_example(data, ngram_sets, ns, x_bar, y_bar)
 
     return data, tag_set, ngram_sets
 
 
 class XyCrf():
     def __init__(self):
-        self.squared_sigma = 10.0
         self.training_data = None
         self.feature_functions = []
         self.function_by_name = dict()
@@ -329,9 +338,9 @@ class XyCrf():
         n = len(self.g_matrix_list)
         big_z = self.zed_forward(x_bar)
         expectation = 0.0
-        for i in range(1, n+2):
+        for i in range(1, n+1):
             for y_index_minus_1 in range(0, n+1):
-                for y_index in range(1, n+2):
+                for y_index in range(1, n+1):
                     y_prev = y_bar[y_index_minus_1]
                     y_prev_tag_index = self.tag_index_for_name[y_prev]
                     y = y_bar[y_index]
@@ -352,9 +361,10 @@ class XyCrf():
         n = len(y_bar)
         func = self.feature_functions[function_index]
         sum_total = 0
-        for i in range(1, n+2):
+        for i in range(1, n):
             val = func(y_prev=y_bar[i-1], y=y_bar[i], x_bar=x_bar, i=i)
             sum_total += val
+        print("Returning")
         return sum_total
 
     def gradient_for_all_training(self):
@@ -399,9 +409,8 @@ class XyCrf():
                 expected_val, _ = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
                 self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
 
-    def train(self, data):
+    def train(self):
         self.init_weights()
-        print('* Squared sigma:', self.squared_sigma)
         print('* Start L-BGFS')
         print('   ========================')
         print('   iter(sit): likelihood')
@@ -478,7 +487,7 @@ class XyCrf():
         print("* Number of features: {}".format(self.feature_count))
 
         # Estimates parameters to maximize log-likelihood of the corpus.
-        self.train(data=training_data)
+        self.train()
 
         # self.save_model(model_filename)
 
