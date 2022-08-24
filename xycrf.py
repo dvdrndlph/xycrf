@@ -71,7 +71,6 @@ class XyCrf():
         self.weights = []
         self.tag_index_for_name = dict()
         self.tag_name_for_index = dict()
-        self.g_matrix_list = []
         self.gradient = None
 
     def get_gradient(self):
@@ -117,8 +116,8 @@ class XyCrf():
                 g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
-    def set_g_matrix_list(self, x_bar):
-        self.g_matrix_list = list()
+    def get_g_matrix_list(self, function_index, x_bar):
+        g_matrix_list = list()
         for i in range(1, len(x_bar)):
             matrix = np.zeros((self.tag_count, self.tag_count))
             g_i = self.get_g_i_dict(x_bar, i)
@@ -126,8 +125,8 @@ class XyCrf():
                 y_prev_index = self.tag_index_for_name[y_prev]
                 y_index = self.tag_index_for_name[y]
                 matrix[y_prev_index, y_index] = g_i[(y_prev, y)]
-            self.g_matrix_list.append(matrix)
-        return self.g_matrix_list
+            g_matrix_list.append(matrix)
+        return g_matrix_list
 
     def get_inference_g_list(self, x_bar):
         g_list = list()
@@ -164,7 +163,7 @@ class XyCrf():
         for func in functions:
             self.add_feature_function(func=func)
 
-    def big_u(self, k, v_tag_index):
+    def big_u(self, g_matrix_list, k, v_tag_index):
         if k == 0:
             if self.tag_name_for_index[v_tag_index] == 'START':
                 return 1.0
@@ -173,20 +172,20 @@ class XyCrf():
         max_value = -1 * float('inf')
         max_tag_index = None
         for u_tag_index in self.tag_name_for_index:
-            value, _ = self.big_u(k-1, u_tag_index) + self.g_matrix_list[k][u_tag_index, v_tag_index]
+            value, _ = self.big_u(k-1, u_tag_index) + g_matrix_list[k][u_tag_index, v_tag_index]
             if value > max_value:
                 max_value = value
                 max_u_tag_index = u_tag_index
         return max_value, u_tag_index
 
-    def viterbi(self, x_bar, g_list):
+    def viterbi(self, g_matrix_list, x_bar):
         n = len(x_bar)
 
         big_u_dict = dict()
         for k in range(1, n):
             for v_tag in self.tag_index_for_name:
                 v_tag_index = self.tag_index_for_name[v_tag]
-                max_value, max_u_tag_index = self.big_u(k=k, v_tag_index=v_tag_index)
+                max_value, max_u_tag_index = self.big_u(k=k, v_tag_index=v_tag_index, g_matrix_list=g_matrix_list)
                 big_u_dict[(k, v_tag)] = (max_value, max_u_tag_index)
 
         y_bar = list()
@@ -237,7 +236,7 @@ class XyCrf():
         # return [self.label_dic[label_id] for label_id in sequence[::-1][1:]]
         return sequence
 
-    def alpha(self, k_plus_1, v_tag_index, memo={}):
+    def alpha(self, g_matrix_list, k_plus_1, v_tag_index, memo={}):
         if (k_plus_1, v_tag_index) in memo:
             return memo[(k_plus_1, v_tag_index)]
 
@@ -250,44 +249,44 @@ class XyCrf():
 
         k = k_plus_1 - 1
         for u_tag_index in self.tag_name_for_index:
-            exp_g = exp(self.g_matrix_list[k + 1][u_tag_index, v_tag_index])
-            sum_total += self.alpha(k, u_tag_index, memo) * exp_g
+            exp_g = exp(g_matrix_list[k + 1][u_tag_index, v_tag_index])
+            sum_total += self.alpha(g_matrix_list, k, u_tag_index, memo) * exp_g
 
         memo[(k_plus_1, v_tag_index)] = sum_total
         return sum_total
 
-    def beta(self, u_tag_index, k, memo={}):
-        n = len(self.g_matrix_list)  # Length of the sequence
-        if k == n - 1:
-            if u_tag_index == self.tag_index_for_name['STOP']:
-                return 1
-            else:
-                return 0
-
+    def beta(self, g_matrix_list, u_tag_index, k, memo={}):
         if (u_tag_index, k) in memo:
             return memo[(u_tag_index, k)]
 
         sum_total = 0
+        n = len(g_matrix_list)  # Length of the sequence
+        if k == n - 1:
+            if u_tag_index == self.tag_index_for_name['STOP']:
+                sum_total = 1
+            memo[(u_tag_index, k)] = sum_total
+            return sum_total
+
         for v_tag_index in self.tag_name_for_index:
-            exp_g = exp(self.g_matrix_list[k+1][u_tag_index, v_tag_index])
-            sum_total += exp_g * self.beta(v_tag_index, k+1)
+            exp_g = exp(g_matrix_list[k+1][u_tag_index, v_tag_index])
+            sum_total += exp_g * self.beta(g_matrix_list, v_tag_index, k+1, memo)
 
         memo[(u_tag_index, k)] = sum_total
         return sum_total
 
-    def big_z_forward(self, x_bar):
+    def big_z_forward(self, g_matrix_list, x_bar):
         n = len(x_bar)
-        big_z = self.alpha(n-2, self.tag_index_for_name['STOP'])
+        big_z = self.alpha(g_matrix_list, n-2, self.tag_index_for_name['STOP'])
         return big_z
 
-    def big_z_backward(self, x_bar):
-        big_z = self.beta(self.tag_index_for_name['START'], 0)
+    def big_z_backward(self, g_matrix_list, x_bar):
+        big_z = self.beta(g_matrix_list, self.tag_index_for_name['START'], 0)
         return big_z
 
     def expectation_for_function(self, function_index, x_bar, y_bar):
-        self.set_g_matrix_list(x_bar=x_bar)
-        n = len(self.g_matrix_list)
-        big_z = self.big_z_forward(x_bar)
+        g_matrix_list = self.get_g_matrix_list(function_index=function_index, x_bar=x_bar)
+        n = len(g_matrix_list)
+        big_z = self.big_z_forward(g_matrix_list, x_bar)
         # Forward and backward Z values are very close, but not identical.
         # big_z_alt = self.big_z_backward(x_bar)
         # if big_z != big_z_alt:
@@ -299,9 +298,9 @@ class XyCrf():
                     y_prev = self.tag_name_for_index[y_prev_tag_index]
                     y = y_bar[y_tag_index]
                     feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=i)
-                    alpha_value = self.alpha(k_plus_1=i-1, v_tag_index=y_prev_tag_index)
-                    exp_g_i_value = exp(self.g_matrix_list[i][y_prev_tag_index, y_tag_index])
-                    beta_value = self.beta(u_tag_index=y_tag_index, k=i)
+                    alpha_value = self.alpha(g_matrix_list, k_plus_1=i-1, v_tag_index=y_prev_tag_index)
+                    exp_g_i_value = exp(g_matrix_list[i][y_prev_tag_index, y_tag_index])
+                    beta_value = self.beta(g_matrix_list, u_tag_index=y_tag_index, k=i)
                     expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / big_z)
         return expectation, big_z
 
@@ -330,6 +329,12 @@ class XyCrf():
         # print("Returning")
         return sum_total
 
+    def learn_from_function(self, function_index, x_bar, y_bar):
+        actual_val = self.big_f(function_index=function_index, x_bar=x_bar, y_bar=y_bar)
+        expected_val, example_big_z = self.expectation_for_function(
+            function_index=function_index, x_bar=x_bar, y_bar=y_bar)
+        return actual_val, expected_val, example_big_z
+
     def gradient_for_all_training(self):
         function_count = len(self.feature_functions)
         gradient = list()
@@ -338,12 +343,13 @@ class XyCrf():
             x_bar = example[0]
             y_bar = example[1]
             for j in range(function_count):
-                example_val = self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
-                expected_val, example_zed = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
+                # FIXME: Run next command in parallel for all j.
+                actual_val, expected_val, example_big_z = self.learn_from_function(
+                    function_index=j, x_bar=x_bar, y_bar=y_bar)
                 if len(gradient) == j:
                     gradient.append(0)
-                gradient[j] += example_val - expected_val
-                big_z += example_zed
+                gradient[j] += actual_val - expected_val
+                big_z += example_big_z
         return gradient, big_z
 
     def log_conditional_likelihood(self):
@@ -366,13 +372,18 @@ class XyCrf():
         function_count = len(self.feature_functions)
         self.init_weights()
         example_num = 0
+        # FIXME: There must be a stopping condition other than the last training example.
         for example in self.training_data:
+            global_feature_vals = np.zeros(self.feature_count)
+            expected_vals = np.zeros(self.feature_count)
             x_bar = example[0]
             y_bar = example[1]
             for j in range(function_count):
-                global_feature_val = self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
-                expected_val, _ = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
-                self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
+                # FIXME: Run the next command in parallel for all j.
+                global_feature_vals[j], expected_vals[j], _ = self.learn_from_function(
+                    function_index=j, x_bar=x_bar, y_bar=y_bar)
+            for j in range(function_count):
+                self.weights[j] = self.weights[j] + learning_rate * global_feature_vals[j] - expected_vals[j]
             example_num += 1
             print("Example {} processed.".format(example_num))
         print("Stochastic gradient has been ascended.")

@@ -89,35 +89,33 @@ def pos_trigram_func_factory(trigram, offset):
     return f
 
 
-def add_unigram_functions(xycrf, ngram_sets):
+def add_unigram_functions(xycrf, ngram_sets, offsets=(-2, -1, 0, 1, 2)):
     for (track_index, n) in ngram_sets:
         if n != 1:
             continue
         unigram_set = ngram_sets[(track_index, n)]
         for unigram in unigram_set:
             token = unigram[0]
-            # for offset in (-2, -1, 0, 1, 2):
-            # FIXME
-            for offset in [0]:
+            for offset in offsets:
                 name = "unigram_{}_track_{}_{}".format(offset, track_index, token)
                 func = unigram_func_factory(token=token, track_index=track_index, offset=offset)
                 # result = func(y_prev=None, y=None, x_bar=[[token, 'foo']], i=0)
                 xycrf.add_feature_function(func=func, name=name)
 
 
-def add_bigram_functions(xycrf, ngram_sets):
+def add_bigram_functions(xycrf, ngram_sets, offsets=(-2, -1, 0, 1, 2)):
     for (track_index, n) in ngram_sets:
         if n != 2:
             continue
         bigram_set = ngram_sets[(track_index, n)]
         for bigram in bigram_set:
-            for offset in (-2, -1, 0, 1, 2):
+            for offset in offsets:
                 name = "bigram_{}_track_{}_{}-{}".format(offset, track_index, bigram[0], bigram[1])
                 func = bigram_func_factory(bigram=bigram, track_index=track_index, offset=offset)
                 xycrf.add_feature_function(func=func, name=name)
 
 
-def add_trigram_functions(xycrf, ngram_sets):
+def add_trigram_functions(xycrf, ngram_sets, offsets=(0, 1, 2)):
     for (track_index, n) in ngram_sets:
         if n != 3:
             continue
@@ -125,16 +123,19 @@ def add_trigram_functions(xycrf, ngram_sets):
             continue  # trigrams only for pos track
         trigram_set = ngram_sets[(track_index, n)]
         for trigram in trigram_set:
-            for offset in (0, 1, 2):
+            for offset in offsets:
                 name = "pos_trigram_{}_{}-{}-{}".format(offset, track_index, trigram[0], trigram[1], trigram[2])
                 func = pos_trigram_func_factory(trigram=trigram, offset=offset)
                 xycrf.add_feature_function(func=func, name=name)
 
 
-def add_functions(xycrf, ngram_sets):
-    add_unigram_functions(xycrf, ngram_sets)
-    # add_bigram_functions(xycrf, ngram_sets)
-    # add_trigram_functions(xycrf, ngram_sets)
+def add_functions(xycrf, ngram_sets, ns=(1, 2, 3)):
+    if 1 in ns:
+        add_unigram_functions(xycrf, ngram_sets, offsets=[0])
+    if 2 in ns:
+        add_bigram_functions(xycrf, ngram_sets, offsets=[0])
+    if 3 in ns:
+        add_trigram_functions(xycrf, ngram_sets, offsets=[0])
 
 
 def train_from_file(xycrf, corpus_path, model_path):
