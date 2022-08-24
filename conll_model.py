@@ -187,6 +187,7 @@ if __name__ == '__main__':
     if args.train:
         crf = XyCrf()
         train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
+        # test_from_file(xycrf=crf, corpus_path='data/chunking_tiny/test.data')
     if args.test:
         crf = XyCrf.unpickle(args.input)
         test_from_file(xycrf=crf, corpus_path=args.test)

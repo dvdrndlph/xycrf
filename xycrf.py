@@ -213,7 +213,7 @@ class XyCrf():
         argmax_table = np.zeros((time_len, self.tag_count), dtype='int64')
 
         t = 0
-        for tag_index in self.tag_index_for_name:
+        for tag_index in range(self.tag_count):
             max_table[t, tag_index] = g_list[t][('START', self.tag_name_for_index[tag_index])]
 
         for t in range(1, time_len):
