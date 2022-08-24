@@ -22,19 +22,11 @@ __author__ = 'David Randolph'
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 #
-import copy
-
-from conll_feature_functions import unigram_func_factory, bigram_func_factory, pos_trigram_func_factory
+import pprint
 from nltk import ngrams
-import time
-from collections import Counter
-from datetime import datetime
-
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 from math import log, exp
-
-SCALING_THRESHOLD = 1e250
 
 ITERATION_NUM = 0
 SUB_ITERATION_NUM = 0
@@ -64,64 +56,6 @@ def _gradient(params, *args):
     return xycrf.get_gradient()
 
 
-def _augment_ngram_sets(x_bar, ngram_sets, ns):
-    track_count = len(x_bar[0])
-    for track_index in range(track_count):
-        for n in ns:
-            if (track_index, n) not in ngram_sets:
-                ngram_sets[(track_index, n)] = set()
-            token_list = list()
-            for vector in x_bar:
-                token_list.append(vector[track_index])
-            new_grams = ngrams(token_list, n)
-            for gram in new_grams:
-                ngram_sets[(track_index, n)].add(tuple(gram))
-
-
-def _append_example(data, ngram_sets, ns, x_bar, y_bar):
-    track_count = len(x_bar[0])
-    x_0 = list()
-    x_last = list()
-    for _ in range(track_count):
-        x_0.append('')
-        x_last.append('')
-    x_bar.insert(0, x_0)
-    x_bar.append(x_last)
-    y_bar.insert(0, 'START')
-    y_bar.append('STOP')
-    data.append((x_bar, y_bar))
-    _augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
-
-
-def _read_corpus(file_name, ns):
-    """
-    Read a corpus file with a format used in CoNLL.
-    """
-    data = list()
-    data_string_list = list(open(file_name))
-    tag_set = set()
-    ngram_sets = dict()
-    element_size = 0
-    x_bar = list()
-    y_bar = list()
-    for data_string in data_string_list:
-        words = data_string.strip().split()
-        if len(words) == 0:
-            _append_example(data, ngram_sets, ns, x_bar, y_bar)
-            x_bar = list()
-            y_bar = list()
-        else:
-            if element_size == 0:
-                element_size = len(words)
-            elif element_size is not len(words):
-                raise Exception("Bad file format.")
-            x_bar.append(words[:-1])
-            y_bar.append(words[-1])
-            tag_set.add(words[-1])
-    if len(y_bar) > 1:
-        _append_example(data, ngram_sets, ns, x_bar, y_bar)
-
-    return data, tag_set, ngram_sets
 
 
 class XyCrf():
@@ -164,25 +98,28 @@ class XyCrf():
             tag_index += 1
 
     def get_g_i(self, y_prev, y, x_bar, i):
-        j = 0
-        value = 0
-        for func in self.feature_functions:
+        sum_of_weighted_features = 0
+        for j in range(self.feature_count):
             weight = self.weights[j]
-            value += weight * func(y_prev, y, x_bar, i)
-        return value
+            func_name = self.function_index_name[j]
+            func = self.feature_functions[j]
+            feature_val = func(y_prev, y, x_bar, i)
+            # if feature_val > 0.0:
+                # print("{} feature ({}) is positive for element {} ({})".format(func_name, j, i, x_bar[i]))
+            sum_of_weighted_features += weight * feature_val
+        return sum_of_weighted_features
 
     def get_g_i_dict(self, x_bar, i):
         # Our matrix is a dictionary
         g_i_dict = dict()
         for y_prev in self.tags:
             for y in self.tags:
-                if not (y_prev in ('START', 'STOP') and y in ('START', 'STOP')):
-                    g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
+                g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
     def set_g_matrix_list(self, x_bar):
         self.g_matrix_list = list()
-        for i in range(len(x_bar)):
+        for i in range(1, len(x_bar)):
             matrix = np.zeros((self.tag_count, self.tag_count))
             g_i = self.get_g_i_dict(x_bar, i)
             for (y_prev, y) in g_i:
@@ -207,7 +144,7 @@ class XyCrf():
         self.function_name_index[name] = self.feature_count
         self.function_index_name[self.feature_count] = name
         self.feature_count += 1
-        self.weights.append(1.0)
+        self.weights.append(0.0)
 
     def clear_feature_functions(self):
         self.feature_functions = []
@@ -221,7 +158,7 @@ class XyCrf():
         big_j = len(self.feature_functions)
         self.weights = list()
         for j in range(big_j):
-            self.weights.append(1.0)
+            self.weights.append(0.0)
 
     def add_feature_functions(self, functions):
         for func in functions:
@@ -300,55 +237,71 @@ class XyCrf():
         # return [self.label_dic[label_id] for label_id in sequence[::-1][1:]]
         return sequence
 
-    def alpha(self, k_plus_1, v_tag_index):
+    def alpha(self, k_plus_1, v_tag_index, memo={}):
+        if (k_plus_1, v_tag_index) in memo:
+            return memo[(k_plus_1, v_tag_index)]
+
+        sum_total = 0
         if k_plus_1 == 0:
             if v_tag_index == self.tag_index_for_name['START']:
-                return 1.0
-            else:
-                return 0.0
+                sum_total = 1
+            memo[(k_plus_1, v_tag_index)] = sum_total
+            return sum_total
+
         k = k_plus_1 - 1
-        sum_total = 0.0
         for u_tag_index in self.tag_name_for_index:
-            sum_total += self.alpha(k, u_tag_index) * \
-                (exp(self.g_matrix_list[k+1][u_tag_index, v_tag_index]))
+            exp_g = exp(self.g_matrix_list[k + 1][u_tag_index, v_tag_index])
+            sum_total += self.alpha(k, u_tag_index, memo) * exp_g
+
+        memo[(k_plus_1, v_tag_index)] = sum_total
         return sum_total
 
-    def beta(self, u_tag_index, k):
+    def beta(self, u_tag_index, k, memo={}):
         n = len(self.g_matrix_list)  # Length of the sequence
-        if k == n + 1:
+        if k == n - 1:
             if u_tag_index == self.tag_index_for_name['STOP']:
-                return 1.0
+                return 1
             else:
-                return 0.0
+                return 0
+
+        if (u_tag_index, k) in memo:
+            return memo[(u_tag_index, k)]
+
         sum_total = 0
         for v_tag_index in self.tag_name_for_index:
-            sum_total += exp(self.g_matrix_list[k+1][u_tag_index, v_tag_index]) * \
-                self.beta(v_tag_index, k+1)
+            exp_g = exp(self.g_matrix_list[k+1][u_tag_index, v_tag_index])
+            sum_total += exp_g * self.beta(v_tag_index, k+1)
 
-    def zed_forward(self, x_bar):
-        n = len(self.g_matrix_list)
-        Z = self.alpha(n+1, self.tag_index_for_name['STOP'])
-        return Z
+        memo[(u_tag_index, k)] = sum_total
+        return sum_total
 
-    def zed_backward(self, x_bar):
-        Z = self.beta(self.tag_index_for_name['START'], 0)
-        return Z
+    def big_z_forward(self, x_bar):
+        n = len(x_bar)
+        big_z = self.alpha(n-2, self.tag_index_for_name['STOP'])
+        return big_z
+
+    def big_z_backward(self, x_bar):
+        big_z = self.beta(self.tag_index_for_name['START'], 0)
+        return big_z
 
     def expectation_for_function(self, function_index, x_bar, y_bar):
+        self.set_g_matrix_list(x_bar=x_bar)
         n = len(self.g_matrix_list)
-        big_z = self.zed_forward(x_bar)
+        big_z = self.big_z_forward(x_bar)
+        # Forward and backward Z values are very close, but not identical.
+        # big_z_alt = self.big_z_backward(x_bar)
+        # if big_z != big_z_alt:
+            # raise Exception("Z values do not match: {} vs. {}".format(big_z, big_z_alt))
         expectation = 0.0
-        for i in range(1, n+1):
-            for y_index_minus_1 in range(0, n+1):
-                for y_index in range(1, n+1):
-                    y_prev = y_bar[y_index_minus_1]
-                    y_prev_tag_index = self.tag_index_for_name[y_prev]
-                    y = y_bar[y_index]
-                    y_tag_index = self.tag_index_for_name[y]
-                    feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=y_index)
-                    alpha_value = self.alpha(k_plus_1=y_index_minus_1, v_tag_index=y_prev_tag_index)
-                    exp_g_i_value = exp(self.g_matrix_list[y_index][y_index_minus_1, y_index])
-                    beta_value = self.beta(u_tag_index=y_tag_index, k=y_index)
+        for i in range(1, n):
+            for y_prev_tag_index in range(self.tag_count):
+                for y_tag_index in range(self.tag_count):
+                    y_prev = self.tag_name_for_index[y_prev_tag_index]
+                    y = y_bar[y_tag_index]
+                    feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=i)
+                    alpha_value = self.alpha(k_plus_1=i-1, v_tag_index=y_prev_tag_index)
+                    exp_g_i_value = exp(self.g_matrix_list[i][y_prev_tag_index, y_tag_index])
+                    beta_value = self.beta(u_tag_index=y_tag_index, k=i)
                     expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / big_z)
         return expectation, big_z
 
@@ -360,11 +313,13 @@ class XyCrf():
     def big_f(self, function_index, x_bar, y_bar):
         n = len(y_bar)
         func = self.feature_functions[function_index]
+        # func_name = self.function_index_name[function_index]
         sum_total = 0
         for i in range(1, n):
+            token = x_bar[i][0]
             val = func(y_prev=y_bar[i-1], y=y_bar[i], x_bar=x_bar, i=i)
             sum_total += val
-        print("Returning")
+        # print("Returning")
         return sum_total
 
     def gradient_for_all_training(self):
@@ -377,7 +332,7 @@ class XyCrf():
             for j in range(function_count):
                 example_val = self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
                 expected_val, example_zed = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
-                if j not in gradient:
+                if len(gradient) == j:
                     gradient.append(0)
                 gradient[j] += example_val - expected_val
                 big_z += example_zed
@@ -385,6 +340,7 @@ class XyCrf():
 
     def log_conditional_likelihood(self):
         gradient, big_z = self.gradient_for_all_training()
+        pprint.pprint(gradient)
         weighted_feature_sum = 0
         function_count = len(self.feature_functions)
         for j in range(function_count):
@@ -401,6 +357,7 @@ class XyCrf():
     def stochastic_gradient_ascent_train(self, learning_rate=0.01):
         function_count = len(self.feature_functions)
         self.init_weights()
+        example_num = 0
         for example in self.training_data:
             x_bar = example[0]
             y_bar = example[1]
@@ -408,6 +365,9 @@ class XyCrf():
                 global_feature_val = self.big_f(function_index=j, x_bar=x_bar, y_bar=y_bar)
                 expected_val, _ = self.expectation_for_function(function_index=j, x_bar=x_bar, y_bar=y_bar)
                 self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
+            example_num += 1
+            print("Example {} processed.".format(example_num))
+        print("Stochastic gradient has been ascended.")
 
     def train(self):
         self.init_weights()
@@ -427,73 +387,67 @@ class XyCrf():
             print('* Warning (code: %d)' % information['warnflag'])
             if 'task' in information.keys():
                 print('* Reason: %s' % (information['task']))
-        print('* Likelihood: %s' % str(log_likelihood))
+            print('* Likelihood: %s' % str(log_likelihood))
 
-    def add_unigram_functions(self, ngram_sets):
-        for (track_index, n) in ngram_sets:
-            if n != 1:
-                continue
-            unigram_set = ngram_sets[(track_index, n)]
-            for unigram in unigram_set:
-                token = unigram[0]
-                for offset in (-2, -1, 0, 1, 2):
-                    name = "unigram_{}_track_{}_{}".format(offset, track_index, token)
-                    func = unigram_func_factory(token=token, track_index=track_index, offset=offset)
-                    # result = func(y_prev=None, y=None, x_bar=[[token, 'foo']], i=0)
-                    self.add_feature_function(func=func, name=name)
+    @staticmethod
+    def augment_ngram_sets(x_bar, ngram_sets, ns):
+        track_count = len(x_bar[0])
+        for track_index in range(track_count):
+            for n in ns:
+                if (track_index, n) not in ngram_sets:
+                    ngram_sets[(track_index, n)] = set()
+                token_list = list()
+                for vector in x_bar:
+                    token_list.append(vector[track_index])
+                new_grams = ngrams(token_list, n)
+                for gram in new_grams:
+                    ngram_sets[(track_index, n)].add(tuple(gram))
 
-    def add_bigram_functions(self, ngram_sets):
-        for (track_index, n) in ngram_sets:
-            if n != 2:
-                continue
-            bigram_set = ngram_sets[(track_index, n)]
-            for bigram in bigram_set:
-                for offset in (-2, -1, 0, 1, 2):
-                    name = "bigram_{}_track_{}_{}-{}".format(offset, track_index, bigram[0], bigram[1])
-                    func = bigram_func_factory(bigram=bigram, track_index=track_index, offset=offset)
-                    self.add_feature_function(func=func, name=name)
+    @staticmethod
+    def append_example(data, ngram_sets, ns, x_bar, y_bar):
+        track_count = len(x_bar[0])
+        x_0 = list()
+        x_last = list()
+        for _ in range(track_count):
+            x_0.append('')
+            x_last.append('')
+        x_bar.insert(0, x_0)
+        x_bar.append(x_last)
+        y_bar.insert(0, 'START')
+        y_bar.append('STOP')
+        data.append((x_bar, y_bar))
+        XyCrf.augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
 
-    def add_trigram_functions(self, ngram_sets):
-        for (track_index, n) in ngram_sets:
-            if n != 3:
-                continue
-            if track_index != 1:
-                continue  # trigrams only for pos track
-            trigram_set = ngram_sets[(track_index, n)]
-            for trigram in trigram_set:
-                for offset in (0, 1, 2):
-                    name = "pos_trigram_{}_{}-{}-{}".format(offset, track_index, trigram[0], trigram[1], trigram[2])
-                    func = pos_trigram_func_factory(trigram=trigram, offset=offset)
-                    self.add_feature_function(func=func, name=name)
-
-    def train_from_file(self, corpus_filename, model_filename):
+    @staticmethod
+    def read_corpus(file_name, ns):
         """
-        Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
+        Read a corpus file with a format used in CoNLL.
         """
-        start_time = time.time()
-        print('[%s] Start training' % datetime.now())
+        data = list()
+        data_string_list = list(open(file_name))
+        tag_set = set()
+        ngram_sets = dict()
+        element_size = 0
+        x_bar = list()
+        y_bar = list()
+        for data_string in data_string_list:
+            words = data_string.strip().split()
+            if len(words) == 0:
+                XyCrf.append_example(data, ngram_sets, ns, x_bar, y_bar)
+                x_bar = list()
+                y_bar = list()
+            else:
+                if element_size == 0:
+                    element_size = len(words)
+                elif element_size is not len(words):
+                    raise Exception("Bad file format.")
+                x_bar.append(words[:-1])
+                y_bar.append(words[-1])
+                tag_set.add(words[-1])
+        if len(y_bar) > 1:
+            XyCrf.append_example(data, ngram_sets, ns, x_bar, y_bar)
 
-        # Read the training corpus
-        print("* Reading training data ... ", end="")
-        training_data, tag_set, ngram_sets = _read_corpus(corpus_filename, ns=[1, 2, 3])
-        self.set_tags(tag_list=list(tag_set))
-        self.add_unigram_functions(ngram_sets)
-        self.add_bigram_functions(ngram_sets)
-        self.add_trigram_functions(ngram_sets)
-        self.training_data = training_data
-        print("Done reading data")
-
-        print("* Number of labels: {}".format(self.tag_count))
-        print("* Number of features: {}".format(self.feature_count))
-
-        # Estimates parameters to maximize log-likelihood of the corpus.
-        self.train()
-
-        # self.save_model(model_filename)
-
-        elapsed_time = time.time() - start_time
-        print('* Elapsed time: %f' % elapsed_time)
-        print('* [%s] Training done' % datetime.now())
+        return data, tag_set, ngram_sets
 
 
 if __name__ == '__main__':

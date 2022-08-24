@@ -9,20 +9,20 @@ You can test this code with [CoNLL 2000 chunking data](https://www.clips.uantwer
 
 ```sh
 # format
-python3 xycrf_train.py <train_file> <model_file>
+python3 conll_model.py --train <train_file> --output <model_file>
 
 # example
-python3 xycrf_train.py data/chunking_small/small_train.data small_model.json
+python3 conll_model.py --train data/chunking_small/train.data small_model.json
 ```
 
 ### Test
 
 ```sh
 # format
-python3 xycrf_test.py <test_file> <trained_model_file>
+python3 conll_model.py --test <test_file> --input <trained_model_file>
 
 # example
-python3 xycrf_test.py data/chunking_small/small_test.data small_model.json
+python3 conll_model.py --test data/chunking_small/test.data --input small_model.json
 ```
 
 ## Benchmark Result
