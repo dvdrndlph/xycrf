@@ -191,3 +191,5 @@ if __name__ == '__main__':
     if args.test:
         crf = XyCrf.unpickle(args.input)
         test_from_file(xycrf=crf, corpus_path=args.test)
+
+    exit(0)

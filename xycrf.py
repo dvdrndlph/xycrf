@@ -58,8 +58,6 @@ def _gradient(params, *args):
     return xycrf.get_gradient()
 
 
-
-
 class XyCrf():
     def __init__(self):
         self.training_data = None
@@ -103,9 +101,9 @@ class XyCrf():
         sum_of_weighted_features = 0
         for j in range(self.feature_count):
             weight = self.weights[j]
-            func_name = self.function_index_name[j]
             func = self.feature_functions[j]
             feature_val = func(y_prev, y, x_bar, i)
+            # func_name = self.function_index_name[j]
             # if feature_val > 0.0:
                 # print("{} feature ({}) is positive for element {} ({})".format(func_name, j, i, x_bar[i]))
             sum_of_weighted_features += weight * feature_val
