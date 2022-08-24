@@ -24,6 +24,8 @@ __author__ = 'David Randolph'
 #
 import pprint
 from pathlib import Path
+from pathos.multiprocessing import ProcessingPool
+import os
 import dill
 from nltk import ngrams
 import numpy as np
@@ -58,8 +60,9 @@ def _gradient(params, *args):
     return xycrf.get_gradient()
 
 
-class XyCrf():
-    def __init__(self):
+class XyCrf:
+    def __init__(self, optimize=False):
+        self.optimize = optimize
         self.training_data = None
         self.feature_functions = []
         self.function_by_name = dict()
@@ -335,6 +338,22 @@ class XyCrf():
             function_index=function_index, x_bar=x_bar, y_bar=y_bar)
         return actual_val, expected_val, example_big_z
 
+    def learn_from_functions(self, x_bar, y_bar):
+        pool = ProcessingPool(nodes=8)
+        x_bars = list()
+        y_bars = list()
+        for _ in range(self.feature_count):
+            x_bars.append(x_bar)
+            y_bars.append(y_bar)
+        results = pool.map(_learn_from_function, zip([self]*self.feature_count,
+                                                     self.function_index_name,
+                                                     x_bars, y_bars))
+        return results
+        # drones = list()
+        # for j in range(pool_size):
+            # (actual_val, expected_val, big_f)
+            # drone = pool.apply_async()
+
     def gradient_for_all_training(self):
         function_count = len(self.feature_functions)
         gradient = list()
@@ -374,16 +393,21 @@ class XyCrf():
         example_num = 0
         # FIXME: There must be a stopping condition other than the last training example.
         for example in self.training_data:
-            global_feature_vals = np.zeros(self.feature_count)
-            expected_vals = np.zeros(self.feature_count)
+            # global_feature_vals = np.zeros(self.feature_count)
+            # expected_vals = np.zeros(self.feature_count)
             x_bar = example[0]
             y_bar = example[1]
-            for j in range(function_count):
-                # FIXME: Run the next command in parallel for all j.
-                global_feature_vals[j], expected_vals[j], _ = self.learn_from_function(
-                    function_index=j, x_bar=x_bar, y_bar=y_bar)
-            for j in range(function_count):
-                self.weights[j] = self.weights[j] + learning_rate * global_feature_vals[j] - expected_vals[j]
+            if self.optimize:
+                learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar)
+                for j in range(function_count):
+                    global_feature_val = learnings[j][0]
+                    expected_val = learnings[j][1]
+                    self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
+            else:
+                for j in range(function_count):
+                    global_feature_val, expected_val, _ = self.learn_from_function(
+                        function_index=j, x_bar=x_bar, y_bar=y_bar)
+                    self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
             example_num += 1
             print("Example {} processed.".format(example_num))
         print("Stochastic gradient has been ascended.")
@@ -485,6 +509,10 @@ class XyCrf():
             print("Unpickled object from path {}.".format(path_str))
             return unpickled_obj
         return None
+
+
+def _learn_from_function(arg, **kwarg):
+    return XyCrf.learn_from_function(*arg, **kwarg)
 
 
 if __name__ == '__main__':
