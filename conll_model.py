@@ -96,8 +96,9 @@ def add_unigram_functions(xycrf, ngram_sets):
         unigram_set = ngram_sets[(track_index, n)]
         for unigram in unigram_set:
             token = unigram[0]
-            for offset in (-2, -1, 0, 1, 2):
-                # for offset in [0]:
+            # for offset in (-2, -1, 0, 1, 2):
+            # FIXME
+            for offset in [0]:
                 name = "unigram_{}_track_{}_{}".format(offset, track_index, token)
                 func = unigram_func_factory(token=token, track_index=track_index, offset=offset)
                 # result = func(y_prev=None, y=None, x_bar=[[token, 'foo']], i=0)
@@ -161,7 +162,7 @@ def train_from_file(xycrf, corpus_path, model_path):
     # Estimates parameters to maximize log-likelihood of the corpus.
     # xycrf.train()
 
-    # xycrf.save_model(model_filename)
+    xycrf.pickle(model_path)
 
     end_dt = datetime.now()
     execution_duration_minutes = (end_dt - start_dt)
@@ -169,20 +170,23 @@ def train_from_file(xycrf, corpus_path, model_path):
     print('* [%s] Training done' % end_dt)
 
 
-def test_from_file(xycrf, corpus_path, model_path):
-    pass
+def test_from_file(xycrf, corpus_path):
+    test_data, tag_set, ngram_sets = XyCrf.read_corpus(corpus_path, ns=[1, 2, 3])
+    inferences = xycrf.infer_all(test_data)
+    print(inferences)
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", help="data file for training input")
-    parser.add_argument("--output", help="the json model file name to output")
+    parser.add_argument("--output", help="the model pickle file name to output")
     parser.add_argument("--test", help="data file for evaluation")
-    parser.add_argument("--input", help="the json model file name")
+    parser.add_argument("--input", help="the model pickle file path")
     args = parser.parse_args()
 
-    crf = XyCrf()
     if args.train:
+        crf = XyCrf()
         train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
     if args.test:
-        test_from_file(xycrf=crf, corpus_path=args.test, model_path=args.input)
+        crf = XyCrf.unpickle(args.input)
+        test_from_file(xycrf=crf, corpus_path=args.test)

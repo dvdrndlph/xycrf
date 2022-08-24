@@ -23,6 +23,8 @@ __author__ = 'David Randolph'
 # OTHER DEALINGS IN THE SOFTWARE.
 #
 import pprint
+from pathlib import Path
+import dill
 from nltk import ngrams
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
@@ -173,7 +175,7 @@ class XyCrf():
         max_value = -1 * float('inf')
         max_tag_index = None
         for u_tag_index in self.tag_name_for_index:
-            value = self.big_u(k-1, u_tag_index) + self.g_matrix_list[k][u_tag_index, v_tag_index]
+            value, _ = self.big_u(k-1, u_tag_index) + self.g_matrix_list[k][u_tag_index, v_tag_index]
             if value > max_value:
                 max_value = value
                 max_u_tag_index = u_tag_index
@@ -307,8 +309,16 @@ class XyCrf():
 
     def infer(self, x_bar):
         g_list = self.get_inference_g_list(x_bar)
-        y_hat = self.viterbi(x_bar, g_list)
+        y_hat = self.viterbi_iterative(x_bar, g_list)
         return y_hat
+
+    def infer_all(self, data):
+        y_hats = list()
+        for example in data:
+            x_bar = example[0]
+            y_hat = self.infer(x_bar)
+            y_hats.append(y_hat)
+        return y_hats
 
     def big_f(self, function_index, x_bar, y_bar):
         n = len(y_bar)
@@ -448,6 +458,24 @@ class XyCrf():
             XyCrf.append_example(data, ngram_sets, ns, x_bar, y_bar)
 
         return data, tag_set, ngram_sets
+
+    def pickle(self, path_str):
+        print("Pickling to path {}.".format(path_str))
+        pickle_fh = open(path_str, 'wb')
+        # dill.dump(self, pickle_fh, protocol=pickle.HIGHEST_PROTOCOL)
+        dill.dump(self, pickle_fh, protocol=dill.HIGHEST_PROTOCOL)
+        pickle_fh.close()
+
+    @staticmethod
+    def unpickle(path_str):
+        path = Path(path_str)
+        if path.is_file():
+            pickle_fh = open(path_str, 'rb')
+            unpickled_obj = dill.load(pickle_fh)
+            pickle_fh.close()
+            print("Unpickled object from path {}.".format(path_str))
+            return unpickled_obj
+        return None
 
 
 if __name__ == '__main__':
