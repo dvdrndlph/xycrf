@@ -94,7 +94,8 @@ def add_unigram_functions(xycrf, ngram_sets, offsets=(-2, -1, 0, 1, 2)):
         if n != 1:
             continue
         unigram_set = ngram_sets[(track_index, n)]
-        for unigram in unigram_set:
+        # IMPORTANT: Sorting is essential to make sure model results are deterministic.
+        for unigram in sorted(unigram_set):
             token = unigram[0]
             for offset in offsets:
                 name = "unigram_{}_track_{}_{}".format(offset, track_index, token)
@@ -108,7 +109,8 @@ def add_bigram_functions(xycrf, ngram_sets, offsets=(-2, -1, 0, 1, 2)):
         if n != 2:
             continue
         bigram_set = ngram_sets[(track_index, n)]
-        for bigram in bigram_set:
+        # IMPORTANT: Sorting is essential to make sure model results are deterministic.
+        for bigram in sorted(bigram_set):
             for offset in offsets:
                 name = "bigram_{}_track_{}_{}-{}".format(offset, track_index, bigram[0], bigram[1])
                 func = bigram_func_factory(bigram=bigram, track_index=track_index, offset=offset)
@@ -122,7 +124,8 @@ def add_trigram_functions(xycrf, ngram_sets, offsets=(0, 1, 2)):
         if track_index != 1:
             continue  # trigrams only for pos track
         trigram_set = ngram_sets[(track_index, n)]
-        for trigram in trigram_set:
+        # IMPORTANT: Sorting is essential to make sure model results are deterministic.
+        for trigram in sorted(trigram_set):
             for offset in offsets:
                 name = "pos_trigram_{}_{}-{}-{}".format(offset, track_index, trigram[0], trigram[1], trigram[2])
                 func = pos_trigram_func_factory(trigram=trigram, offset=offset)
@@ -170,6 +173,8 @@ def train_from_file(xycrf, corpus_path, model_path):
     print("Total training time (wall clock): {}".format(execution_duration_minutes))
     print('* [%s] Training done' % end_dt)
 
+    return xycrf.weights
+
 
 def test_from_file(xycrf, corpus_path):
     test_data, tag_set, ngram_sets = XyCrf.read_corpus(corpus_path, ns=[1, 2, 3])
@@ -186,8 +191,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.train:
-        crf = XyCrf()
-        train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
+        crf = XyCrf(optimize=False)
+        serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
+        crf = XyCrf(optimize=True)
+        parallel_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
+        for i in range(len(serial_weights)):
+            if serial_weights[i] != parallel_weights[i]:
+                print("Weights are DIFFERENT.")
+                break
+        print("Weights are the SAME.")
         # test_from_file(xycrf=crf, corpus_path='data/chunking_tiny/test.data')
     if args.test:
         crf = XyCrf.unpickle(args.input)

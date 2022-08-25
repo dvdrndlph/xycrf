@@ -61,17 +61,15 @@ def _gradient(params, *args):
 
 
 class XyCrf:
-    def __init__(self, optimize=False):
+    def __init__(self, optimize=True):
         self.optimize = optimize
         self.training_data = None
-        self.feature_functions = []
-        self.function_by_name = dict()
-        self.function_name_index = dict()
+        self.feature_functions = list()
         self.function_index_name = dict()
         self.tag_count = 0
-        self.tags = []
+        self.tags = list()
         self.feature_count = 0  # Number of global feature functions.
-        self.weights = []
+        self.weights = list()
         self.tag_index_for_name = dict()
         self.tag_name_for_index = dict()
         self.gradient = None
@@ -142,29 +140,24 @@ class XyCrf:
         self.feature_functions.append(func)
         if name is None:
             name = "f_{}".format(self.feature_count)
-        self.function_by_name[name] = func
-        self.function_name_index[name] = self.feature_count
         self.function_index_name[self.feature_count] = name
         self.feature_count += 1
         self.weights.append(0.0)
 
+    def add_feature_functions(self, functions):
+        for func in functions:
+            self.add_feature_function(func=func)
+
     def clear_feature_functions(self):
         self.feature_functions = []
-        self.function_by_name = {}
-        self.function_name_index = {}
         self.function_index_name = {}
         self.feature_count = 0
         self.weights = []
 
     def init_weights(self):
-        big_j = len(self.feature_functions)
         self.weights = list()
-        for j in range(big_j):
+        for j in range(len(self.feature_functions)):
             self.weights.append(0.0)
-
-    def add_feature_functions(self, functions):
-        for func in functions:
-            self.add_feature_function(func=func)
 
     def big_u(self, g_matrix_list, k, v_tag_index):
         if k == 0:
@@ -173,20 +166,19 @@ class XyCrf:
             else:
                 return 0.0  # ???
         max_value = -1 * float('inf')
-        max_tag_index = None
-        for u_tag_index in self.tag_name_for_index:
+        max_u_tag_index = None
+        for u_tag_index in range(self.tag_count):
             value, _ = self.big_u(k-1, u_tag_index) + g_matrix_list[k][u_tag_index, v_tag_index]
             if value > max_value:
                 max_value = value
                 max_u_tag_index = u_tag_index
-        return max_value, u_tag_index
+        return max_value, max_u_tag_index
 
     def viterbi(self, g_matrix_list, x_bar):
         n = len(x_bar)
-
         big_u_dict = dict()
         for k in range(1, n):
-            for v_tag in self.tag_index_for_name:
+            for v_tag in range(self.tag_count):
                 v_tag_index = self.tag_index_for_name[v_tag]
                 max_value, max_u_tag_index = self.big_u(k=k, v_tag_index=v_tag_index, g_matrix_list=g_matrix_list)
                 big_u_dict[(k, v_tag)] = (max_value, max_u_tag_index)
@@ -194,8 +186,7 @@ class XyCrf:
         y_bar = list()
         max_value = -1 * float('inf')
         prior_tag = None
-        for v_tag in self.tag_index_for_name:
-            v_tag_index = self.tag_index_for_name[v_tag]
+        for v_tag in range(self.tag_count):
             (value, u_tag_index) = big_u_dict[(k, v_tag)]
             if value < max_value:
                 max_value = value
@@ -251,7 +242,7 @@ class XyCrf:
             return sum_total
 
         k = k_plus_1 - 1
-        for u_tag_index in self.tag_name_for_index:
+        for u_tag_index in range(self.tag_count):
             exp_g = exp(g_matrix_list[k + 1][u_tag_index, v_tag_index])
             sum_total += self.alpha(g_matrix_list, k, u_tag_index, memo) * exp_g
 
@@ -270,7 +261,7 @@ class XyCrf:
             memo[(u_tag_index, k)] = sum_total
             return sum_total
 
-        for v_tag_index in self.tag_name_for_index:
+        for v_tag_index in range(self.tag_count):
             exp_g = exp(g_matrix_list[k+1][u_tag_index, v_tag_index])
             sum_total += exp_g * self.beta(g_matrix_list, v_tag_index, k+1, memo)
 
@@ -286,7 +277,7 @@ class XyCrf:
         big_z = self.beta(g_matrix_list, self.tag_index_for_name['START'], 0)
         return big_z
 
-    def expectation_for_function(self, function_index, x_bar, y_bar):
+    def expectation_for_function(self, function_index, x_bar):
         g_matrix_list = self.get_g_matrix_list(function_index=function_index, x_bar=x_bar)
         n = len(g_matrix_list)
         big_z = self.big_z_forward(g_matrix_list, x_bar)
@@ -300,7 +291,6 @@ class XyCrf:
                 for y_tag_index in range(self.tag_count):
                     y_prev = self.tag_name_for_index[y_prev_tag_index]
                     y = self.tag_name_for_index[y_tag_index]
-                    # y = y_bar[y_tag_index]
                     feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=i)
                     alpha_value = self.alpha(g_matrix_list, k_plus_1=i-1, v_tag_index=y_prev_tag_index)
                     exp_g_i_value = exp(g_matrix_list[i][y_prev_tag_index, y_tag_index])
@@ -336,7 +326,7 @@ class XyCrf:
     def learn_from_function(self, function_index, x_bar, y_bar):
         actual_val = self.big_f(function_index=function_index, x_bar=x_bar, y_bar=y_bar)
         expected_val, example_big_z = self.expectation_for_function(
-            function_index=function_index, x_bar=x_bar, y_bar=y_bar)
+            function_index=function_index, x_bar=x_bar)
         return actual_val, expected_val, example_big_z
 
     def learn_from_functions(self, x_bar, y_bar):
@@ -347,7 +337,7 @@ class XyCrf:
             x_bars.append(x_bar)
             y_bars.append(y_bar)
         results = pool.map(_learn_from_function, zip([self]*self.feature_count,
-                                                     self.function_index_name,
+                                                     [x for x in range(self.feature_count)],
                                                      x_bars, y_bars))
         return results
         # drones = list()
@@ -398,17 +388,18 @@ class XyCrf:
             # expected_vals = np.zeros(self.feature_count)
             x_bar = example[0]
             y_bar = example[1]
+            learnings = list()
             if self.optimize:
                 learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar)
-                for j in range(function_count):
-                    global_feature_val = learnings[j][0]
-                    expected_val = learnings[j][1]
-                    self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
             else:
                 for j in range(function_count):
                     global_feature_val, expected_val, _ = self.learn_from_function(
                         function_index=j, x_bar=x_bar, y_bar=y_bar)
-                    self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
+                    learnings.append([global_feature_val, expected_val])
+            for j in range(function_count):
+                global_feature_val = learnings[j][0]
+                expected_val = learnings[j][1]
+                self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
             example_num += 1
             print("Example {} processed.".format(example_num))
         print("Stochastic gradient has been ascended.")
