@@ -299,7 +299,8 @@ class XyCrf:
             for y_prev_tag_index in range(self.tag_count):
                 for y_tag_index in range(self.tag_count):
                     y_prev = self.tag_name_for_index[y_prev_tag_index]
-                    y = y_bar[y_tag_index]
+                    y = self.tag_name_for_index[y_tag_index]
+                    # y = y_bar[y_tag_index]
                     feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=i)
                     alpha_value = self.alpha(g_matrix_list, k_plus_1=i-1, v_tag_index=y_prev_tag_index)
                     exp_g_i_value = exp(g_matrix_list[i][y_prev_tag_index, y_tag_index])
