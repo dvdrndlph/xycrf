@@ -340,10 +340,6 @@ class XyCrf:
                                                      [x for x in range(self.feature_count)],
                                                      x_bars, y_bars))
         return results
-        # drones = list()
-        # for j in range(pool_size):
-            # (actual_val, expected_val, big_f)
-            # drone = pool.apply_async()
 
     def gradient_for_all_training(self):
         function_count = len(self.feature_functions)

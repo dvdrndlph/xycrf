@@ -178,8 +178,19 @@ def train_from_file(xycrf, corpus_path, model_path):
 
 def test_from_file(xycrf, corpus_path):
     test_data, tag_set, ngram_sets = XyCrf.read_corpus(corpus_path, ns=[1, 2, 3])
-    inferences = xycrf.infer_all(test_data)
-    print(inferences)
+    total_count = 0
+    correct_count = 0
+    for x_bar, y_bar in test_data:
+        y_bar_pred = xycrf.infer(x_bar)
+        print(y_bar_pred)
+        for i in range(len(y_bar)):
+            total_count += 1
+            if y_bar[i] == y_bar_pred[i]:
+                correct_count += 1
+
+    print('Correct: %d' % correct_count)
+    print('Total: %d' % total_count)
+    print('Performance: %f' % (correct_count / total_count))
 
 
 if __name__ == '__main__':
@@ -191,16 +202,15 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.train:
-        crf = XyCrf(optimize=False)
-        serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
         crf = XyCrf(optimize=True)
         parallel_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
-        for i in range(len(serial_weights)):
-            if serial_weights[i] != parallel_weights[i]:
-                print("Weights are DIFFERENT.")
-                break
-        print("Weights are the SAME.")
-        # test_from_file(xycrf=crf, corpus_path='data/chunking_tiny/test.data')
+        # crf = XyCrf(optimize=False)
+        # serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
+        # for i in range(len(serial_weights)):
+            # if serial_weights[i] != parallel_weights[i]:
+                # print("Weights are DIFFERENT.")
+                # break
+        # print("Weights are the SAME.")
     if args.test:
         crf = XyCrf.unpickle(args.input)
         test_from_file(xycrf=crf, corpus_path=args.test)
