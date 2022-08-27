@@ -53,13 +53,15 @@ def ngram_func_factory(n, training_data, look_after):
 
         if look_after:
             for i in range(1, len(y_bar)):
-                if i + n > len(y_bar):
+                if i + n > len(y_bar) - 1:
                     continue
                 if y_bar[i-1] != '-':
                     continue
                 tuple_start = i
-                tuple_end = i + n - 1
+                tuple_end = i + n
                 new_gram = tuple(x_bar[tuple_start:tuple_end])
+                if "" in new_gram:
+                    raise Exception(f'No blanks allowed after: {new_gram}.')
                 if new_gram not in ngram_counts[n]:
                     ngram_counts[n][new_gram] = 1
                 else:
@@ -73,6 +75,8 @@ def ngram_func_factory(n, training_data, look_after):
                 tuple_start = i - n + 1
                 tuple_end = i + 1
                 new_gram = tuple(x_bar[tuple_start:tuple_end])
+                if "" in new_gram:
+                    raise Exception(f'No blanks allowed before: {new_gram}.')
                 if new_gram not in ngram_counts[n]:
                     ngram_counts[n][new_gram] = 1
                 else:
@@ -86,19 +90,21 @@ def ngram_func_factory(n, training_data, look_after):
 
         flat_x_bar = list(itertools.chain(*x_bar))
         if look_after:
-            if 0 < i < len(x_bar) + n:
+            if 0 < i < len(x_bar) + n - 2:
                 start = i
                 end = i + n
                 gram = tuple(flat_x_bar[start:end])
                 if gram in ngram_counts[n]:
-                    return ngram_counts[n][gram]
+                    count = ngram_counts[n][gram]
+                    return 1
         else:
             if i - n + 1 >= 0 and i + 1 < len(flat_x_bar):
                 start = i - n + 1
                 end = i + 1
                 gram = tuple(flat_x_bar[start:end])
                 if gram in ngram_counts[n]:
-                    return ngram_counts[n][gram]
+                    count = ngram_counts[n][gram]
+                    return 1
         return 0
 
     return f
