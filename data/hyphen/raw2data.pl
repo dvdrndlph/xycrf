@@ -22,7 +22,7 @@ foreach my $lang ('english', 'dutch') {
             }
         }
         for (my $i = 0; $i < scalar(@letter); $i++) {
-            my $hyphen_tag = 'x';
+            my $hyphen_tag = '*';
             if ($hyphen_index{$i}) {
                 $hyphen_tag = '-'
             }

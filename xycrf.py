@@ -379,6 +379,7 @@ class XyCrf:
         self.init_weights()
         example_num = 0
         # FIXME: There must be a stopping condition other than the last training example.
+        block_size = 1000
         for example in self.training_data:
             # global_feature_vals = np.zeros(self.feature_count)
             # expected_vals = np.zeros(self.feature_count)
@@ -397,7 +398,8 @@ class XyCrf:
                 expected_val = learnings[j][1]
                 self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
             example_num += 1
-            print("Example {} processed.".format(example_num))
+            if example_num % block_size == 0:
+                print("Example {} processed.".format(example_num))
         print("Stochastic gradient has been ascended.")
 
     def train(self):
