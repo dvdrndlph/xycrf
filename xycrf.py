@@ -24,8 +24,7 @@ __author__ = 'David Randolph'
 #
 import pprint
 from pathlib import Path
-from pathos.multiprocessing import ProcessingPool
-import os
+from pathos.multiprocessing import ProcessingPool, cpu_count
 import dill
 from nltk import ngrams
 import numpy as np
@@ -117,7 +116,7 @@ class XyCrf:
                 g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
-    def get_g_matrix_list(self, function_index, x_bar):
+    def get_g_matrix_list(self, x_bar):
         g_matrix_list = list()
         for i in range(1, len(x_bar)):
             matrix = np.zeros((self.tag_count, self.tag_count))
@@ -277,8 +276,7 @@ class XyCrf:
         big_z = self.beta(g_matrix_list, self.tag_index_for_name['START'], 0)
         return big_z
 
-    def expectation_for_function(self, function_index, x_bar):
-        g_matrix_list = self.get_g_matrix_list(function_index=function_index, x_bar=x_bar)
+    def expectation_for_function(self, function_index, x_bar, g_matrix_list):
         n = len(g_matrix_list)
         big_z = self.big_z_forward(g_matrix_list, x_bar)
         # Forward and backward Z values are very close, but not identical.
@@ -293,8 +291,12 @@ class XyCrf:
                     y = self.tag_name_for_index[y_tag_index]
                     feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=i)
                     alpha_value = self.alpha(g_matrix_list, k_plus_1=i-1, v_tag_index=y_prev_tag_index)
-                    exp_g_i_value = exp(g_matrix_list[i][y_prev_tag_index, y_tag_index])
                     beta_value = self.beta(g_matrix_list, u_tag_index=y_tag_index, k=i)
+                    g_i_value = g_matrix_list[i][y_prev_tag_index, y_tag_index]
+                    try:
+                        exp_g_i_value = exp(g_i_value)
+                    except:
+                        raise Exception(f'Exponentiated big number go boom.')
                     expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / big_z)
         return expectation, big_z
 
@@ -323,14 +325,14 @@ class XyCrf:
         # print("Returning")
         return sum_total
 
-    def learn_from_function(self, function_index, x_bar, y_bar):
+    def learn_from_function(self, function_index, x_bar, y_bar, g_matrix_list):
         actual_val = self.big_f(function_index=function_index, x_bar=x_bar, y_bar=y_bar)
-        expected_val, example_big_z = self.expectation_for_function(
-            function_index=function_index, x_bar=x_bar)
+        expected_val, example_big_z = self.expectation_for_function(g_matrix_list=g_matrix_list,
+                                                                    function_index=function_index, x_bar=x_bar)
         return actual_val, expected_val, example_big_z
 
-    def learn_from_functions(self, x_bar, y_bar):
-        pool = ProcessingPool(nodes=8)
+    def learn_from_functions(self, x_bar, y_bar, g_matrix_list):
+        pool = ProcessingPool(nodes=cpu_count())
         x_bars = list()
         y_bars = list()
         for _ in range(self.feature_count):
@@ -338,7 +340,8 @@ class XyCrf:
             y_bars.append(y_bar)
         results = pool.map(_learn_from_function, zip([self]*self.feature_count,
                                                      [x for x in range(self.feature_count)],
-                                                     x_bars, y_bars))
+                                                     x_bars, y_bars,
+                                                     [g_matrix_list]*self.feature_count))
         return results
 
     def gradient_for_all_training(self):
@@ -348,10 +351,12 @@ class XyCrf:
         for example in self.training_data:
             x_bar = example[0]
             y_bar = example[1]
+            g_matrix_list = self.get_g_matrix_list(x_bar=x_bar)
             for j in range(function_count):
                 # FIXME: Run next command in parallel for all j.
-                actual_val, expected_val, example_big_z = self.learn_from_function(
-                    function_index=j, x_bar=x_bar, y_bar=y_bar)
+                actual_val, expected_val, example_big_z = self.learn_from_function(g_matrix_list=g_matrix_list,
+                                                                                   function_index=j,
+                                                                                   x_bar=x_bar, y_bar=y_bar)
                 if len(gradient) == j:
                     gradient.append(0)
                 gradient[j] += actual_val - expected_val
@@ -385,18 +390,20 @@ class XyCrf:
             # expected_vals = np.zeros(self.feature_count)
             x_bar = example[0]
             y_bar = example[1]
+            g_matrix_list = self.get_g_matrix_list(x_bar=x_bar)
             learnings = list()
             if self.optimize:
-                learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar)
+                learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar, g_matrix_list=g_matrix_list)
             else:
                 for j in range(function_count):
-                    global_feature_val, expected_val, _ = self.learn_from_function(
-                        function_index=j, x_bar=x_bar, y_bar=y_bar)
+                    global_feature_val, expected_val, _ = self.learn_from_function(g_matrix_list=g_matrix_list,
+                                                                                   function_index=j,
+                                                                                   x_bar=x_bar, y_bar=y_bar)
                     learnings.append([global_feature_val, expected_val])
             for j in range(function_count):
                 global_feature_val = learnings[j][0]
                 expected_val = learnings[j][1]
-                self.weights[j] = self.weights[j] + learning_rate * global_feature_val - expected_val
+                self.weights[j] = self.weights[j] + learning_rate * (global_feature_val - expected_val)
             example_num += 1
             if example_num % block_size == 0:
                 print("Example {} processed.".format(example_num))

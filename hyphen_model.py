@@ -27,25 +27,34 @@
 # Seong-Jin Kim's crf package (https://github.com/lancifollia/crf).
 # Many thanks.
 import argparse
+import math
 from datetime import datetime
 import itertools
-
-import numpy as np
-from nltk import ngrams
+from sklearn.model_selection import KFold, train_test_split
 
 from xycrf import XyCrf
 
-ngram_counts_after = dict()
 ngram_counts_before = dict()
+ngram_counts_after = dict()
+ngram_norms_before = dict()
+ngram_norms_after = dict()
+ngram_sums_before = dict()
+ngram_sums_after = dict()
 
 
 def ngram_func_factory(n, training_data, look_after):
     if look_after:
         ngram_counts = ngram_counts_after
+        ngram_sums = ngram_sums_after
+        ngram_norms = ngram_norms_after
     else:
         ngram_counts = ngram_counts_before
+        ngram_sums = ngram_sums_before
+        ngram_norms = ngram_norms_before
     if n not in ngram_counts:
         ngram_counts[n] = dict()
+        ngram_sums[n] = 0
+        ngram_norms[n] = dict()
 
     for example in training_data:
         x_bar = list(itertools.chain(*example[0]))
@@ -63,9 +72,9 @@ def ngram_func_factory(n, training_data, look_after):
                 if "" in new_gram:
                     raise Exception(f'No blanks allowed after: {new_gram}.')
                 if new_gram not in ngram_counts[n]:
-                    ngram_counts[n][new_gram] = 1
-                else:
-                    ngram_counts[n][new_gram] += 1
+                    ngram_counts[n][new_gram] = 0
+                ngram_counts[n][new_gram] += 1
+                ngram_sums[n] += 1
         else:
             for i in range(n - 1, len(y_bar) - 1):
                 if i - n < 0:
@@ -78,9 +87,25 @@ def ngram_func_factory(n, training_data, look_after):
                 if "" in new_gram:
                     raise Exception(f'No blanks allowed before: {new_gram}.')
                 if new_gram not in ngram_counts[n]:
-                    ngram_counts[n][new_gram] = 1
-                else:
-                    ngram_counts[n][new_gram] += 1
+                    ngram_counts[n][new_gram] = 0
+                ngram_counts[n][new_gram] += 1
+                ngram_sums[n] += 1
+
+    # Normalize function return values.
+    ngram_sum = ngram_sums[n]
+    ngram_count = len(ngram_counts[n])
+    avg = ngram_sum / ngram_count
+    sum_of_squared_deviations = 0
+    for gram in ngram_counts[n]:
+        gram_count = ngram_counts[n][gram]
+        deviation = gram_count - avg
+        sum_of_squared_deviations += deviation**2
+    variance = sum_of_squared_deviations / len(ngram_counts)
+    std_deviation = math.sqrt(variance)
+    for gram in ngram_counts[n]:
+        count = ngram_counts[n][gram]
+        norm = (count - avg) / std_deviation
+        ngram_norms[n][gram] = norm
 
     def f(y_prev, y, x_bar, i):
         if y_prev != '-':
@@ -94,17 +119,19 @@ def ngram_func_factory(n, training_data, look_after):
                 start = i
                 end = i + n
                 gram = tuple(flat_x_bar[start:end])
-                if gram in ngram_counts[n]:
-                    count = ngram_counts[n][gram]
-                    return 1
+                if gram in ngram_norms[n]:
+                    #norm = ngram_norms[n][gram]
+                    # return norm
+                    return ngram_counts[n][gram]
         else:
             if i - n + 1 >= 0 and i + 1 < len(flat_x_bar):
                 start = i - n + 1
                 end = i + 1
                 gram = tuple(flat_x_bar[start:end])
-                if gram in ngram_counts[n]:
-                    count = ngram_counts[n][gram]
-                    return 1
+                if gram in ngram_norms[n]:
+                    # norm = ngram_norms[n][gram]
+                    # return norm
+                    return ngram_counts[n][gram]
         return 0
 
     return f
@@ -175,10 +202,21 @@ def test_from_file(xycrf, corpus_path):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train", help="data file for training input")
-    parser.add_argument("--output", help="the model pickle file name to output")
-    parser.add_argument("--test", help="data file for evaluation")
-    parser.add_argument("--input", help="the model pickle file path")
+    parser.add_argument("--train", help="Data file for training input.")
+    parser.add_argument("--output", help="Path of model pickle file name to output.")
+    parser.add_argument("--method", help="One of sga or lbfgs. Default: sga.", choices=['lbfgs', 'sga'])
+    parser.add_argument("--rate", help="Learning rate for sga (stochastic gradient ascent) method. " +
+                        "Default: 1.", type=float)
+    parser.add_argument("--epochs", help="Number of epochs (runs over all training) for sga method. " +
+                        "Default: 3.", type=int)
+    parser.add_argument("--attenuation", help="Rate multiplier for subsequent epochs of sga training. " +
+                        "Default: 0.1.", type=float)
+    parser.add_argument("--test", help="Data file for evaluation.")
+    parser.add_argument("--input", help="Model pickle file path.")
+
+    parser.add_argument("--test_size", help="Number of records to include in test set.", type=int)
+    parser.add_argument("--holdout", help="Number of records to exclude from usage. " +
+                        "Default: 0.", type=int)
     args = parser.parse_args()
 
     if args.train:
