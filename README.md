@@ -1,8 +1,15 @@
 # xycrf
 A CRF package supporting true feature functions of both observations and labels (X and Y).
 
-## Usage
+THIS IS IN EARLY STAGES OF DEVELOPMENT. NOTHING WORKS YET. All we know for sure is this
+approach is completely impractical for something like the CONLL chunking task. Thousands
+of boolean functions for every word/ngram in a corpus is too much for our naive implementation
+to support.
 
+Word hyphenation seems to be a reasonable test case.
+
+## Usage
+ 
 You can test this code with [CoNLL 2000 chunking data](https://www.clips.uantwerpen.be/conll2000/chunking/).
 
 ### Training
