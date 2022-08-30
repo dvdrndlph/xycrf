@@ -23,6 +23,7 @@ __author__ = 'David Randolph'
 # OTHER DEALINGS IN THE SOFTWARE.
 #
 import pprint
+import random
 from pathlib import Path
 from pathos.multiprocessing import ProcessingPool, cpu_count
 import dill
@@ -396,7 +397,7 @@ class XyCrf:
         self.set_gradient(gradient)
         return likelihood
 
-    def stochastic_gradient_ascent_train(self, learning_rate=0.01, attenuation=1, epochs=1):
+    def stochastic_gradient_ascent_train(self, learning_rate=0.01, attenuation=1, epochs=1, seeder=lambda: 0.27):
         function_count = len(self.feature_functions)
         self.init_weights()
         # FIXME: There must be a stopping condition other than the last training example.
@@ -408,6 +409,8 @@ class XyCrf:
         for epoch in range(epochs):
             print(f'Starting pass number {epoch_number} (of {epochs}) through the training set.')
             example_num = 0
+            if seeder is not None:
+                random.shuffle(self.training_data, seeder)
             for example in self.training_data:
                 # global_feature_vals = np.zeros(self.feature_count)
                 # expected_vals = np.zeros(self.feature_count)
