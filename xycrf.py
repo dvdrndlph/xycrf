@@ -288,7 +288,7 @@ class XyCrf:
         big_z = self.beta('START', 0, g_dicts, memo={})
         return big_z
 
-    def expectation_for_function(self, function_index, x_bar, g_dicts, validate=True):
+    def expectation_for_function(self, function_index, x_bar, g_dicts, validate=False):
         func = self.feature_functions[function_index]
         func_name = self.function_index_name[function_index]
         n = len(x_bar)
@@ -397,7 +397,9 @@ class XyCrf:
         self.set_gradient(gradient)
         return likelihood
 
-    def stochastic_gradient_ascent_train(self, learning_rate=0.01, attenuation=1, epochs=1, seeder=lambda: 0.27):
+    def stochastic_gradient_ascent_train(self, regularization=0.0005,
+                                         learning_rate=0.01, attenuation=1, epochs=1,
+                                         seeder=lambda: 0.27):
         function_count = len(self.feature_functions)
         self.init_weights()
         # FIXME: There must be a stopping condition other than the last training example.
@@ -429,12 +431,15 @@ class XyCrf:
                 for j in range(function_count):
                     global_feature_val = learnings[j][0]
                     expected_val = learnings[j][1]
-                    self.weights[j] = self.weights[j] + learning_rate * (global_feature_val - expected_val)
+                    self.weights[j] = self.weights[j] + learning_rate * (
+                                      (global_feature_val - expected_val) - 2 * regularization * self.weights[j])
+
                 example_num += 1
                 if example_num % block_size == 0:
-                    print("Example {} processed.".format(example_num))
+                    print(f'Example {epoch_number}:{example_num} processed.')
             learning_rate *= attenuation
-            print("The stochastic gradient has been ascended.")
+            epoch_number += 1
+        print("The stochastic gradient has been ascended.")
 
     def train(self):
         self.init_weights()
