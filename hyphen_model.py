@@ -113,6 +113,17 @@ def ngram_func_factory(n, training_data, look_after):
         if y == '-':
             return 0
 
+        if y == 'START':
+            if i == 0:
+                return 1
+            else:
+                return 0
+        if y == 'STOP':
+            if i == len(x_bar) - 1:
+                return 1
+            else:
+                return 0
+
         flat_x_bar = list(itertools.chain(*x_bar))
         if look_after:
             if 0 < i < len(x_bar) + n - 2:
@@ -120,18 +131,18 @@ def ngram_func_factory(n, training_data, look_after):
                 end = i + n
                 gram = tuple(flat_x_bar[start:end])
                 if gram in ngram_norms[n]:
-                    #norm = ngram_norms[n][gram]
-                    # return norm
-                    return ngram_counts[n][gram]
+                    # return ngram_counts[n][gram]
+                    norm = ngram_norms[n][gram]
+                    return norm
         else:
             if i - n + 1 >= 0 and i + 1 < len(flat_x_bar):
                 start = i - n + 1
                 end = i + 1
                 gram = tuple(flat_x_bar[start:end])
                 if gram in ngram_norms[n]:
-                    # norm = ngram_norms[n][gram]
-                    # return norm
-                    return ngram_counts[n][gram]
+                    # return ngram_counts[n][gram]
+                    norm = ngram_norms[n][gram]
+                    return norm
         return 0
 
     return f
@@ -148,7 +159,7 @@ def add_functions(xycrf, training_data, ns=(2,3,4,5)):
             xycrf.add_feature_function(func=func, name=name)
 
 
-def train_from_file(xycrf, corpus_path, model_path):
+def train_from_file(xycrf, corpus_path, model_path, epochs, learning_rate, attenuation):
     """
     Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
     """
@@ -168,7 +179,7 @@ def train_from_file(xycrf, corpus_path, model_path):
     print("* Number of training examples: {}".format(len(training_data)))
 
     # gradient, big_z = xycrf.gradient_for_all_training()
-    xycrf.stochastic_gradient_ascent_train()
+    xycrf.stochastic_gradient_ascent_train(epochs=epochs, learning_rate=learning_rate, attenuation=attenuation)
     print(xycrf.weights)
     # Estimates parameters to maximize log-likelihood of the corpus.
     # xycrf.train()
@@ -220,10 +231,20 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.train:
+        epochs = 1
+        learning_rate = 0.01
+        attenuation = 1
+        if args.epochs:
+            epochs = args.epochs
+        if args.rate:
+            learning_rate = args.rate
+        if args.attenuation:
+            attenuation = args.attenuation
         crf = XyCrf(optimize=False)
-        parallel_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
         # crf = XyCrf(optimize=False)
-        # serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
+        serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output,
+                                         epochs=epochs, learning_rate=learning_rate, attenuation=attenuation)
+        # parallel_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
         # for i in range(len(serial_weights)):
             # if serial_weights[i] != parallel_weights[i]:
                 # print("Weights are DIFFERENT.")

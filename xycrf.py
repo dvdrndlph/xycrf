@@ -104,7 +104,7 @@ class XyCrf:
             feature_val = func(y_prev, y, x_bar, i)
             # func_name = self.function_index_name[j]
             # if feature_val > 0.0:
-                # print("{} feature ({}) is positive for element {} ({})".format(func_name, j, i, x_bar[i]))
+            #     print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
             sum_of_weighted_features += weight * feature_val
         return sum_of_weighted_features
 
@@ -115,6 +115,13 @@ class XyCrf:
             for y in self.tags:
                 g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
+
+    def get_g_dicts(self, x_bar):
+        g_dict_list = list()
+        for i in range(len(x_bar)):
+            g_i = self.get_g_i_dict(x_bar, i)
+            g_dict_list.append(g_i)
+        return g_dict_list
 
     def get_g_matrix_list(self, x_bar):
         g_matrix_list = list()
@@ -158,28 +165,28 @@ class XyCrf:
         for j in range(len(self.feature_functions)):
             self.weights.append(0.0)
 
-    def big_u(self, g_matrix_list, k, v_tag_index):
+    def big_u(self, k, v_tag, g_dicts):
         if k == 0:
-            if self.tag_name_for_index[v_tag_index] == 'START':
+            if v_tag == 'START':
                 return 1.0
             else:
                 return 0.0  # ???
         max_value = -1 * float('inf')
-        max_u_tag_index = None
-        for u_tag_index in range(self.tag_count):
-            value, _ = self.big_u(k-1, u_tag_index) + g_matrix_list[k][u_tag_index, v_tag_index]
+        max_u_tag = None
+        for u_tag in range(self.tag_count):
+            value, _ = self.big_u(k-1, u_tag, g_dicts)
+            value += g_dicts[k][(u_tag, v_tag)]
             if value > max_value:
                 max_value = value
-                max_u_tag_index = u_tag_index
-        return max_value, max_u_tag_index
+                max_u_tag = u_tag
+        return max_value, max_u_tag
 
-    def viterbi(self, g_matrix_list, x_bar):
+    def viterbi(self, g_dicts, x_bar):
         n = len(x_bar)
         big_u_dict = dict()
         for k in range(1, n):
             for v_tag in range(self.tag_count):
-                v_tag_index = self.tag_index_for_name[v_tag]
-                max_value, max_u_tag_index = self.big_u(k=k, v_tag_index=v_tag_index, g_matrix_list=g_matrix_list)
+                max_value, max_u_tag_index = self.big_u(k=k, v_tag=v_tag, g_dicts=g_dicts)
                 big_u_dict[(k, v_tag)] = (max_value, max_u_tag_index)
 
         y_bar = list()
@@ -229,74 +236,84 @@ class XyCrf:
         # return [self.label_dic[label_id] for label_id in sequence[::-1][1:]]
         return sequence
 
-    def alpha(self, g_matrix_list, k_plus_1, v_tag_index, memo={}):
-        if (k_plus_1, v_tag_index) in memo:
-            return memo[(k_plus_1, v_tag_index)]
+    def alpha(self, k_plus_1, v_tag, g_dicts, memo):
+        if (k_plus_1, v_tag) in memo:
+            return memo[(k_plus_1, v_tag)]
 
         sum_total = 0
         if k_plus_1 == 0:
-            if v_tag_index == self.tag_index_for_name['START']:
+            if v_tag == 'START':
                 sum_total = 1
-            memo[(k_plus_1, v_tag_index)] = sum_total
+            memo[(k_plus_1, v_tag)] = sum_total
             return sum_total
 
         k = k_plus_1 - 1
-        for u_tag_index in range(self.tag_count):
-            exp_g = exp(g_matrix_list[k + 1][u_tag_index, v_tag_index])
-            sum_total += self.alpha(g_matrix_list, k, u_tag_index, memo) * exp_g
+        for u_tag in self.tags:
+            g = g_dicts[k_plus_1][(u_tag, v_tag)]
+            exp_g = exp(g)
+            alphie = self.alpha(k, u_tag, g_dicts, memo)
+            sum_total += alphie * exp_g
 
-        memo[(k_plus_1, v_tag_index)] = sum_total
+        memo[(k_plus_1, v_tag)] = sum_total
         return sum_total
 
-    def beta(self, g_matrix_list, u_tag_index, k, memo={}):
-        if (u_tag_index, k) in memo:
-            return memo[(u_tag_index, k)]
+    def beta(self, u_tag, k, g_dicts, memo={}):
+        if (u_tag, k) in memo:
+            return memo[(u_tag, k)]
 
         sum_total = 0
-        n = len(g_matrix_list)  # Length of the sequence
+        n = len(g_dicts)  # Length of the sequence
         if k == n - 1:
-            if u_tag_index == self.tag_index_for_name['STOP']:
+            if u_tag == 'STOP':
                 sum_total = 1
-            memo[(u_tag_index, k)] = sum_total
+            memo[(u_tag, k)] = sum_total
             return sum_total
 
-        for v_tag_index in range(self.tag_count):
-            exp_g = exp(g_matrix_list[k+1][u_tag_index, v_tag_index])
-            sum_total += exp_g * self.beta(g_matrix_list, v_tag_index, k+1, memo)
+        for v_tag in self.tags:
+            g = g_dicts[k+1][(u_tag, v_tag)]
+            exp_g = exp(g)
+            betty = self.beta(v_tag, k+1, g_dicts, memo)
+            sum_total += exp_g * betty
 
-        memo[(u_tag_index, k)] = sum_total
+        memo[(u_tag, k)] = sum_total
         return sum_total
 
-    def big_z_forward(self, g_matrix_list, x_bar):
+    def big_z_forward(self, g_dicts):
+        n = len(g_dicts)
+        big_z = self.alpha(n-1, 'STOP', g_dicts, memo={})
+        return big_z
+
+    def big_z_backward(self, g_dicts):
+        big_z = self.beta('START', 0, g_dicts, memo={})
+        return big_z
+
+    def expectation_for_function(self, function_index, x_bar, g_dicts, validate=True):
+        func = self.feature_functions[function_index]
+        func_name = self.function_index_name[function_index]
         n = len(x_bar)
-        big_z = self.alpha(g_matrix_list, n-2, self.tag_index_for_name['STOP'])
-        return big_z
+        big_z = self.big_z_forward(g_dicts)
+        if big_z == 0:
+            raise Exception('Z cannot be 0.')
+        if validate:
+            # Forward and backward Z values are very close, but not identical.
+            big_z_beta = self.big_z_backward(g_dicts)
+            if abs(big_z - big_z_beta) / big_z > 0.01:
+                raise Exception(f"Z values do not match: {big_z} vs. {big_z_beta}")
 
-    def big_z_backward(self, g_matrix_list, x_bar):
-        big_z = self.beta(g_matrix_list, self.tag_index_for_name['START'], 0)
-        return big_z
-
-    def expectation_for_function(self, function_index, x_bar, g_matrix_list):
-        n = len(g_matrix_list)
-        big_z = self.big_z_forward(g_matrix_list, x_bar)
-        # Forward and backward Z values are very close, but not identical.
-        # big_z_alt = self.big_z_backward(x_bar)
-        # if big_z != big_z_alt:
-            # raise Exception("Z values do not match: {} vs. {}".format(big_z, big_z_alt))
         expectation = 0.0
         for i in range(1, n):
-            for y_prev_tag_index in range(self.tag_count):
-                for y_tag_index in range(self.tag_count):
-                    y_prev = self.tag_name_for_index[y_prev_tag_index]
-                    y = self.tag_name_for_index[y_tag_index]
-                    feature_value = self.feature_functions[function_index](y_prev=y_prev, y=y, x_bar=x_bar, i=i)
-                    alpha_value = self.alpha(g_matrix_list, k_plus_1=i-1, v_tag_index=y_prev_tag_index)
-                    beta_value = self.beta(g_matrix_list, u_tag_index=y_tag_index, k=i)
-                    g_i_value = g_matrix_list[i][y_prev_tag_index, y_tag_index]
+            for y_prev in self.tags:
+                for y in self.tags:
+                    feature_value = func(y_prev=y_prev, y=y, x_bar=x_bar, i=i)
+                    if feature_value == 0:
+                        continue
+                    alpha_value = self.alpha(k_plus_1=i-1, v_tag=y_prev, g_dicts=g_dicts, memo={})
+                    beta_value = self.beta(u_tag=y, k=i, g_dicts=g_dicts, memo={})
+                    g_i_value = g_dicts[i][(y_prev, y)]
                     try:
                         exp_g_i_value = exp(g_i_value)
                     except:
-                        raise Exception(f'Exponentiated big number go boom.')
+                        raise Exception(f'Exponentiated big number go boom for {func_name}.')
                     expectation += feature_value * ((alpha_value * exp_g_i_value * beta_value) / big_z)
         return expectation, big_z
 
@@ -325,13 +342,13 @@ class XyCrf:
         # print("Returning")
         return sum_total
 
-    def learn_from_function(self, function_index, x_bar, y_bar, g_matrix_list):
+    def learn_from_function(self, function_index, x_bar, y_bar, g_dicts):
         actual_val = self.big_f(function_index=function_index, x_bar=x_bar, y_bar=y_bar)
-        expected_val, example_big_z = self.expectation_for_function(g_matrix_list=g_matrix_list,
+        expected_val, example_big_z = self.expectation_for_function(g_dicts=g_dicts,
                                                                     function_index=function_index, x_bar=x_bar)
         return actual_val, expected_val, example_big_z
 
-    def learn_from_functions(self, x_bar, y_bar, g_matrix_list):
+    def learn_from_functions(self, x_bar, y_bar, g_dicts):
         pool = ProcessingPool(nodes=cpu_count())
         x_bars = list()
         y_bars = list()
@@ -341,7 +358,7 @@ class XyCrf:
         results = pool.map(_learn_from_function, zip([self]*self.feature_count,
                                                      [x for x in range(self.feature_count)],
                                                      x_bars, y_bars,
-                                                     [g_matrix_list]*self.feature_count))
+                                                     [g_dicts]*self.feature_count))
         return results
 
     def gradient_for_all_training(self):
@@ -351,10 +368,10 @@ class XyCrf:
         for example in self.training_data:
             x_bar = example[0]
             y_bar = example[1]
-            g_matrix_list = self.get_g_matrix_list(x_bar=x_bar)
+            g_dicts = self.get_g_dicts(x_bar=x_bar)
             for j in range(function_count):
                 # FIXME: Run next command in parallel for all j.
-                actual_val, expected_val, example_big_z = self.learn_from_function(g_matrix_list=g_matrix_list,
+                actual_val, expected_val, example_big_z = self.learn_from_function(g_dicts=g_dicts,
                                                                                    function_index=j,
                                                                                    x_bar=x_bar, y_bar=y_bar)
                 if len(gradient) == j:
@@ -379,35 +396,42 @@ class XyCrf:
         self.set_gradient(gradient)
         return likelihood
 
-    def stochastic_gradient_ascent_train(self, learning_rate=0.01):
+    def stochastic_gradient_ascent_train(self, learning_rate=0.01, attenuation=1, epochs=1):
         function_count = len(self.feature_functions)
         self.init_weights()
-        example_num = 0
         # FIXME: There must be a stopping condition other than the last training example.
+        # Elkan gives us a rule of thumb that says 3-100 epochs, but with how expensive
+        # the "edge-observation" functions of both x and y values are, we need to run lean.
+
         block_size = 1000
-        for example in self.training_data:
-            # global_feature_vals = np.zeros(self.feature_count)
-            # expected_vals = np.zeros(self.feature_count)
-            x_bar = example[0]
-            y_bar = example[1]
-            g_matrix_list = self.get_g_matrix_list(x_bar=x_bar)
-            learnings = list()
-            if self.optimize:
-                learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar, g_matrix_list=g_matrix_list)
-            else:
+        epoch_number = 1
+        for epoch in range(epochs):
+            print(f'Starting pass number {epoch_number} (of {epochs}) through the training set.')
+            example_num = 0
+            for example in self.training_data:
+                # global_feature_vals = np.zeros(self.feature_count)
+                # expected_vals = np.zeros(self.feature_count)
+                x_bar = example[0]
+                y_bar = example[1]
+                g_dicts = self.get_g_dicts(x_bar=x_bar)
+                learnings = list()
+                if self.optimize:
+                    learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar, g_dicts=g_dicts)
+                else:
+                    for j in range(function_count):
+                        global_feature_val, expected_val, _ = self.learn_from_function(g_dicts=g_dicts,
+                                                                                       function_index=j,
+                                                                                       x_bar=x_bar, y_bar=y_bar)
+                        learnings.append([global_feature_val, expected_val])
                 for j in range(function_count):
-                    global_feature_val, expected_val, _ = self.learn_from_function(g_matrix_list=g_matrix_list,
-                                                                                   function_index=j,
-                                                                                   x_bar=x_bar, y_bar=y_bar)
-                    learnings.append([global_feature_val, expected_val])
-            for j in range(function_count):
-                global_feature_val = learnings[j][0]
-                expected_val = learnings[j][1]
-                self.weights[j] = self.weights[j] + learning_rate * (global_feature_val - expected_val)
-            example_num += 1
-            if example_num % block_size == 0:
-                print("Example {} processed.".format(example_num))
-        print("Stochastic gradient has been ascended.")
+                    global_feature_val = learnings[j][0]
+                    expected_val = learnings[j][1]
+                    self.weights[j] = self.weights[j] + learning_rate * (global_feature_val - expected_val)
+                example_num += 1
+                if example_num % block_size == 0:
+                    print("Example {} processed.".format(example_num))
+            learning_rate *= attenuation
+            print("The stochastic gradient has been ascended.")
 
     def train(self):
         self.init_weights()
