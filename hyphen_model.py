@@ -33,6 +33,7 @@ import itertools
 from sklearn.model_selection import KFold, train_test_split
 
 from xycrf import XyCrf
+from util.corpus import read_corpus
 
 ngram_counts_before = dict()
 ngram_counts_after = dict()
@@ -168,7 +169,7 @@ def train_from_file(xycrf, corpus_path, model_path, epochs, learning_rate, atten
 
     # Read the training corpus
     print("* Reading training data ... ", end="")
-    training_data, tag_set, ngram_sets = XyCrf.read_corpus(corpus_path, ns=[2,3,4,5])
+    training_data, tag_set, ngram_sets = read_corpus(corpus_path, ns=[2,3,4,5])
     xycrf.set_tags(tag_list=list(tag_set))
     add_functions(xycrf=xycrf, training_data=training_data)
     xycrf.training_data = training_data

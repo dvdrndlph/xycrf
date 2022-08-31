@@ -27,7 +27,6 @@ import random
 from pathlib import Path
 from pathos.multiprocessing import ProcessingPool, cpu_count
 import dill
-from nltk import ngrams
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 from math import log, exp
@@ -460,66 +459,6 @@ class XyCrf:
             if 'task' in information.keys():
                 print('* Reason: %s' % (information['task']))
             print('* Likelihood: %s' % str(log_likelihood))
-
-    @staticmethod
-    def augment_ngram_sets(x_bar, ngram_sets, ns):
-        track_count = len(x_bar[0])
-        for track_index in range(track_count):
-            for n in ns:
-                if (track_index, n) not in ngram_sets:
-                    ngram_sets[(track_index, n)] = set()
-                token_list = list()
-                for vector in x_bar:
-                    token_list.append(vector[track_index])
-                new_grams = ngrams(token_list, n)
-                for gram in new_grams:
-                    ngram_sets[(track_index, n)].add(tuple(gram))
-
-    @staticmethod
-    def append_example(data, ngram_sets, ns, x_bar, y_bar):
-        track_count = len(x_bar[0])
-        x_0 = list()
-        x_last = list()
-        for _ in range(track_count):
-            x_0.append('')
-            x_last.append('')
-        x_bar.insert(0, x_0)
-        x_bar.append(x_last)
-        y_bar.insert(0, 'START')
-        y_bar.append('STOP')
-        data.append((x_bar, y_bar))
-        XyCrf.augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
-
-    @staticmethod
-    def read_corpus(file_name, ns):
-        """
-        Read a corpus file with a format used in CoNLL.
-        """
-        data = list()
-        data_string_list = list(open(file_name))
-        tag_set = set()
-        ngram_sets = dict()
-        element_size = 0
-        x_bar = list()
-        y_bar = list()
-        for data_string in data_string_list:
-            words = data_string.strip().split()
-            if len(words) == 0:
-                XyCrf.append_example(data, ngram_sets, ns, x_bar, y_bar)
-                x_bar = list()
-                y_bar = list()
-            else:
-                if element_size == 0:
-                    element_size = len(words)
-                elif element_size is not len(words):
-                    raise Exception("Bad file format.")
-                x_bar.append(words[:-1])
-                y_bar.append(words[-1])
-                tag_set.add(words[-1])
-        if len(y_bar) > 1:
-            XyCrf.append_example(data, ngram_sets, ns, x_bar, y_bar)
-
-        return data, tag_set, ngram_sets
 
     def pickle(self, path_str):
         print("Pickling to path {}.".format(path_str))
