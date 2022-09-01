@@ -55,12 +55,12 @@ def append_example(data, ngram_sets, ns, x_bar, y_bar):
     augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
 
 
-def read_corpus(file_name, ns):
+def read_corpus(file_path, ns):
     """
     Read a corpus file with the format used in CoNLL.
     """
     data = list()
-    data_string_list = list(open(file_name))
+    data_string_list = list(open(file_path))
     tag_set = set()
     ngram_sets = dict()
     element_size = 0
@@ -109,14 +109,14 @@ def get_dataset_fields(data, ns):
     return fields
 
 
-def split_corpus(file_name, ns, seed: int,
-                 train_size=0.7, validation_size=0.15, test_size=0.15):
+def split_corpus(file_path, ns, seed: int, test_size: float, validation_size=0.0):
     splits = {
         'train': dict(),
         'validation': dict(),
         'test': dict()
     }
-    data, tag_set, ngram_sets = read_corpus(file_name=file_name, ns=ns)
+    train_size = 1.0 - validation_size - test_size
+    data, tag_set, ngram_sets = read_corpus(file_path=file_path, ns=ns)
     (training_data, non_training_data) = train_test_split(data,
                                                           train_size=train_size,
                                                           random_state=seed,
@@ -125,7 +125,7 @@ def split_corpus(file_name, ns, seed: int,
 
     if validation_size == 0:
         splits['test'] = get_dataset_fields(data=non_training_data, ns=ns)
-    else:
+    elif test_size != 0:
         non_training_size = validation_size + test_size
         scaled_validation_size = validation_size / non_training_size
         (validation_data, test_data) = train_test_split(non_training_data,
@@ -138,12 +138,12 @@ def split_corpus(file_name, ns, seed: int,
     return splits
 
 
-def k_fold_corpus(file_name, ns, seed: int, k: int, holdout_size=0.15):
+def k_fold_corpus(file_path, ns, seed: int, k: int, holdout_size=0.15):
     splits = {
         'folds': list(),
         'holdout': dict()
     }
-    data, tag_set, ngram_sets = read_corpus(file_name=file_name, ns=ns)
+    data, tag_set, ngram_sets = read_corpus(file_path=file_path, ns=ns)
     if holdout_size != 0:
         (data, holdout_data) = train_test_split(data,
                                                 test_size=holdout_size,

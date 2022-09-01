@@ -33,7 +33,7 @@ import itertools
 from sklearn.model_selection import KFold, train_test_split
 
 from xycrf import XyCrf
-from util.corpus import read_corpus
+from util.corpus import read_corpus, split_corpus
 
 ngram_counts_before = dict()
 ngram_counts_after = dict()
@@ -109,11 +109,6 @@ def ngram_func_factory(n, training_data, look_after):
         ngram_norms[n][gram] = norm
 
     def f(y_prev, y, x_bar, i):
-        if y_prev != '-':
-            return 0
-        if y == '-':
-            return 0
-
         if y == 'START':
             if i == 0:
                 return 1
@@ -124,6 +119,9 @@ def ngram_func_factory(n, training_data, look_after):
                 return 1
             else:
                 return 0
+
+        if y_prev != '-':
+            return 0
 
         flat_x_bar = list(itertools.chain(*x_bar))
         if look_after:
@@ -160,7 +158,9 @@ def add_functions(xycrf, training_data, ns=(2,3,4,5)):
             xycrf.add_feature_function(func=func, name=name)
 
 
-def train_from_file(xycrf, corpus_path, model_path, epochs, learning_rate, attenuation):
+def train_from_file(xycrf, corpus_path, model_path,
+                    epochs, learning_rate, attenuation,
+                    test_size=0.0, seed=None, ns=(2, 3, 4, 5)):
     """
     Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
     """
@@ -169,7 +169,13 @@ def train_from_file(xycrf, corpus_path, model_path, epochs, learning_rate, atten
 
     # Read the training corpus
     print("* Reading training data ... ", end="")
-    training_data, tag_set, ngram_sets = read_corpus(corpus_path, ns=[2,3,4,5])
+    if test_size == 0 or seed is None:
+        training_data, tag_set, _ = read_corpus(corpus_path, ns=ns)
+    else:
+        splits = split_corpus(file_path=corpus_path, ns=ns, seed=seed, test_size=test_size)
+        training_data = splits['train']['data']
+        tag_set = splits['train']['tag_set']
+
     xycrf.set_tags(tag_list=list(tag_set))
     add_functions(xycrf=xycrf, training_data=training_data)
     xycrf.training_data = training_data
@@ -195,12 +201,19 @@ def train_from_file(xycrf, corpus_path, model_path, epochs, learning_rate, atten
     return xycrf.weights
 
 
-def test_from_file(xycrf, corpus_path):
-    test_data, tag_set, ngram_sets = XyCrf.read_corpus(corpus_path, ns=[1, 2, 3])
+def test_from_file(xycrf, corpus_path, test_size=0.0, seed=None, ns=(2, 3, 4, 5)):
+    if test_size == 0:
+        test_data, tag_set, _ = read_corpus(corpus_path, ns=ns)
+    else:
+        splits = split_corpus(file_path=corpus_path, ns=ns, seed=seed, test_size=test_size)
+        test_data = splits['test']['data']
+        tag_set = splits['test']['tag_set']
+
     total_count = 0
     correct_count = 0
     for x_bar, y_bar in test_data:
         y_bar_pred = xycrf.infer(x_bar)
+        print(x_bar)
         print(y_bar_pred)
         for i in range(len(y_bar)):
             total_count += 1
@@ -226,9 +239,14 @@ if __name__ == '__main__':
     parser.add_argument("--test", help="Data file for evaluation.")
     parser.add_argument("--input", help="Model pickle file path.")
 
-    parser.add_argument("--test_size", help="Number of records to include in test set.", type=int)
-    parser.add_argument("--holdout", help="Number of records to exclude from usage. " +
-                        "Default: 0.", type=int)
+    parser.add_argument("--seed", help="Integer to seed randomization of input data." +
+                        "Default: 1965", type=int)
+    parser.add_argument("--test_size", help="Proportion (0.00 - 1.00) of records to include in test set." +
+                        "Default: 0.0", type=float)
+    # parser.add_argument("--validation_size", help="Proportion (0.00 - 1.00) of records to include in validation set." +
+                        # "Default: 0.0", type=float)
+    # parser.add_argument("--k_folds", help="Number of folds to include for cross-validation." +
+                        # "Default: 0.0", type=int)
     args = parser.parse_args()
 
     if args.train:
@@ -242,9 +260,18 @@ if __name__ == '__main__':
         if args.attenuation:
             attenuation = args.attenuation
         crf = XyCrf(optimize=False)
+        if args.test_size:
+            if not args.seed:
+                seed = 1066
+            else:
+                seed = args.seed
+            serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output,
+                                             epochs=epochs, learning_rate=learning_rate, attenuation=attenuation,
+                                             test_size=args.test_size, seed=seed)
+        else:
+            serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output,
+                                             epochs=epochs, learning_rate=learning_rate, attenuation=attenuation)
         # crf = XyCrf(optimize=False)
-        serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output,
-                                         epochs=epochs, learning_rate=learning_rate, attenuation=attenuation)
         # parallel_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
         # for i in range(len(serial_weights)):
             # if serial_weights[i] != parallel_weights[i]:
@@ -253,6 +280,13 @@ if __name__ == '__main__':
         # print("Weights are the SAME.")
     if args.test:
         crf = XyCrf.unpickle(args.input)
-        test_from_file(xycrf=crf, corpus_path=args.test)
+        if args.test_size:
+            if not args.seed:
+                seed = 1066
+            else:
+                seed = args.seed
+            test_from_file(xycrf=crf, corpus_path=args.test, test_size=args.test_size, seed=seed)
+        else:
+            test_from_file(xycrf=crf, corpus_path=args.test)
 
     exit(0)

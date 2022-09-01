@@ -102,9 +102,9 @@ class XyCrf:
             weight = self.weights[j]
             func = self.feature_functions[j]
             feature_val = func(y_prev, y, x_bar, i)
-            # func_name = self.function_index_name[j]
-            # if feature_val > 0.0:
-            #     print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
+            func_name = self.function_index_name[j]
+            if feature_val > 0.0:
+                print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
             sum_of_weighted_features += weight * feature_val
         return sum_of_weighted_features
 
@@ -122,25 +122,6 @@ class XyCrf:
             g_i = self.get_g_i_dict(x_bar, i)
             g_dict_list.append(g_i)
         return g_dict_list
-
-    def get_g_matrix_list(self, x_bar):
-        g_matrix_list = list()
-        for i in range(1, len(x_bar)):
-            matrix = np.zeros((self.tag_count, self.tag_count))
-            g_i = self.get_g_i_dict(x_bar, i)
-            for (y_prev, y) in g_i:
-                y_prev_index = self.tag_index_for_name[y_prev]
-                y_index = self.tag_index_for_name[y]
-                matrix[y_prev_index, y_index] = g_i[(y_prev, y)]
-            g_matrix_list.append(matrix)
-        return g_matrix_list
-
-    def get_inference_g_list(self, x_bar):
-        g_list = list()
-        for i in range(len(x_bar)):
-            g_i = self.get_g_i_dict(x_bar, i)
-            g_list.append(g_i)
-        return g_list
 
     def add_feature_function(self, func, name=None):
         self.feature_functions.append(func)
@@ -168,12 +149,12 @@ class XyCrf:
     def big_u(self, k, v_tag, g_dicts):
         if k == 0:
             if v_tag == 'START':
-                return 1.0
+                return 1.0, v_tag
             else:
-                return 0.0  # ???
+                return 0.0, v_tag  # ???
         max_value = -1 * float('inf')
         max_u_tag = None
-        for u_tag in range(self.tag_count):
+        for u_tag in self.tags:
             value, _ = self.big_u(k-1, u_tag, g_dicts)
             value += g_dicts[k][(u_tag, v_tag)]
             if value > max_value:
@@ -181,27 +162,27 @@ class XyCrf:
                 max_u_tag = u_tag
         return max_value, max_u_tag
 
-    def viterbi(self, g_dicts, x_bar):
+    def viterbi(self, x_bar, g_dicts):
         n = len(x_bar)
         big_u_dict = dict()
         for k in range(1, n):
-            for v_tag in range(self.tag_count):
-                max_value, max_u_tag_index = self.big_u(k=k, v_tag=v_tag, g_dicts=g_dicts)
-                big_u_dict[(k, v_tag)] = (max_value, max_u_tag_index)
+            for v_tag in self.tags:
+                max_value, max_u_tag = self.big_u(k=k, v_tag=v_tag, g_dicts=g_dicts)
+                big_u_dict[(k, v_tag)] = (max_value, max_u_tag)
 
-        y_bar = list()
+        y_hat = list()
         max_value = -1 * float('inf')
         prior_tag = None
-        for v_tag in range(self.tag_count):
+        for v_tag in self.tags:
             (value, u_tag_index) = big_u_dict[(k, v_tag)]
             if value < max_value:
                 max_value = value
                 prior_tag = self.tag_name_for_index[u_tag_index]
-        y_bar.append(prior_tag)
+        y_hat.append(prior_tag)
         for k in range(n-1, 1, -1):
             (prior_max, prior_tag) = big_u_dict[(k, prior_tag)]
-            y_bar.insert(0, prior_tag)
-        return y_bar
+            y_hat.insert(0, prior_tag)
+        return y_hat
 
     def viterbi_iterative(self, x_bar, g_list):
         # Modeled after Seong-Jin Kim's implementation.
@@ -318,8 +299,8 @@ class XyCrf:
         return expectation, big_z
 
     def infer(self, x_bar):
-        g_list = self.get_inference_g_list(x_bar)
-        y_hat = self.viterbi_iterative(x_bar, g_list)
+        g_dicts = self.get_g_dicts(x_bar)
+        y_hat = self.viterbi(x_bar, g_dicts=g_dicts)
         return y_hat
 
     def infer_all(self, data):
@@ -328,6 +309,7 @@ class XyCrf:
             x_bar = example[0]
             y_hat = self.infer(x_bar)
             y_hats.append(y_hat)
+            exit(1)
         return y_hats
 
     def big_f(self, function_index, x_bar, y_bar):
