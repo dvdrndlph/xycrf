@@ -35,80 +35,90 @@ from sklearn.model_selection import KFold, train_test_split
 from xycrf import XyCrf
 from util.corpus import read_corpus, split_corpus
 
-ngram_counts_before = dict()
-ngram_counts_after = dict()
-ngram_norms_before = dict()
-ngram_norms_after = dict()
-ngram_sums_before = dict()
-ngram_sums_after = dict()
+ngram_counts = dict()
+ngram_norms = dict()
+ngram_sums = dict()
 
 
-def ngram_func_factory(n, training_data, look_after):
-    if look_after:
-        ngram_counts = ngram_counts_after
-        ngram_sums = ngram_sums_after
-        ngram_norms = ngram_norms_after
-    else:
-        ngram_counts = ngram_counts_before
-        ngram_sums = ngram_sums_before
-        ngram_norms = ngram_norms_before
-    if n not in ngram_counts:
-        ngram_counts[n] = dict()
-        ngram_sums[n] = 0
-        ngram_norms[n] = dict()
+def ngram_func_factory(n, training_data, suffixing: bool, hyphenated: bool):
+    if suffixing not in ngram_counts:
+        ngram_counts[suffixing] = dict()
+        ngram_norms[suffixing] = dict()
+        ngram_sums[suffixing] = dict()
+    if hyphenated not in ngram_counts[suffixing]:
+        ngram_counts[suffixing][hyphenated] = dict()
+        ngram_norms[suffixing][hyphenated] = dict()
+        ngram_sums[suffixing][hyphenated] = dict()
+    if n not in ngram_counts[suffixing][hyphenated]:
+        ngram_counts[suffixing][hyphenated][n] = dict()
+        ngram_sums[suffixing][hyphenated][n] = 0
+        ngram_norms[suffixing][hyphenated][n] = dict()
+
+    counts = ngram_counts[suffixing][hyphenated]
+    sums = ngram_sums[suffixing][hyphenated]
+    norms = ngram_norms[suffixing][hyphenated]
 
     for example in training_data:
         x_bar = list(itertools.chain(*example[0]))
         y_bar = list(itertools.chain(example[1]))
 
-        if look_after:
+        if suffixing:
             for i in range(1, len(y_bar)):
-                if i + n > len(y_bar) - 1:
+                if i + n > len(y_bar):
                     continue
-                if y_bar[i-1] != '-':
-                    continue
+                if hyphenated:
+                    if y_bar[i-1] != '-':
+                        continue
+                else:
+                    if y_bar[i-1] == '-':
+                        continue
                 tuple_start = i
                 tuple_end = i + n
                 new_gram = tuple(x_bar[tuple_start:tuple_end])
-                if "" in new_gram:
-                    raise Exception(f'No blanks allowed after: {new_gram}.')
-                if new_gram not in ngram_counts[n]:
-                    ngram_counts[n][new_gram] = 0
-                ngram_counts[n][new_gram] += 1
-                ngram_sums[n] += 1
+                if new_gram not in counts[n]:
+                    counts[n][new_gram] = 0
+                counts[n][new_gram] += 1
+                sums[n] += 1
         else:
             for i in range(n - 1, len(y_bar) - 1):
                 if i - n < 0:
                     continue
-                if y_bar[i-1] != '-':
-                    continue
-                tuple_start = i - n + 1
+                if hyphenated:
+                    if y_bar[i-1] != '-':
+                        continue
+                else:
+                    if y_bar[i-1] == '-':
+                        continue
+                tuple_start = i - n
                 tuple_end = i + 1
                 new_gram = tuple(x_bar[tuple_start:tuple_end])
-                if "" in new_gram:
-                    raise Exception(f'No blanks allowed before: {new_gram}.')
-                if new_gram not in ngram_counts[n]:
-                    ngram_counts[n][new_gram] = 0
-                ngram_counts[n][new_gram] += 1
-                ngram_sums[n] += 1
+                if new_gram not in counts[n]:
+                    counts[n][new_gram] = 0
+                counts[n][new_gram] += 1
+                sums[n] += 1
 
     # Normalize function return values.
-    ngram_sum = ngram_sums[n]
-    ngram_count = len(ngram_counts[n])
+    ngram_sum = sums[n]
+    ngram_count = len(counts[n])
     avg = ngram_sum / ngram_count
     sum_of_squared_deviations = 0
-    for gram in ngram_counts[n]:
-        gram_count = ngram_counts[n][gram]
+    for gram in counts[n]:
+        gram_count = counts[n][gram]
         deviation = gram_count - avg
         sum_of_squared_deviations += deviation**2
-    variance = sum_of_squared_deviations / len(ngram_counts)
+    variance = sum_of_squared_deviations / len(counts)
     std_deviation = math.sqrt(variance)
-    for gram in ngram_counts[n]:
-        count = ngram_counts[n][gram]
+    for gram in counts[n]:
+        count = counts[n][gram]
         norm = (count - avg) / std_deviation
-        ngram_norms[n][gram] = norm
+        norms[n][gram] = norm
 
     def f(y_prev, y, x_bar, i):
+        if y_prev != '-':
+            return 0
+        if y == '-':
+            return 0
+
         if y == 'START':
             if i == 0:
                 return 1
@@ -120,11 +130,8 @@ def ngram_func_factory(n, training_data, look_after):
             else:
                 return 0
 
-        if y_prev != '-':
-            return 0
-
         flat_x_bar = list(itertools.chain(*x_bar))
-        if look_after:
+        if suffixing:
             if 0 < i < len(x_bar) + n - 2:
                 start = i
                 end = i + n
@@ -149,13 +156,14 @@ def ngram_func_factory(n, training_data, look_after):
 
 def add_functions(xycrf, training_data, ns=(2,3,4,5)):
     for n in ns:
-        for looking_after in (True, False):
-            direction = 'before'
-            if looking_after:
-                direction = 'after'
-            name = "{}-gram_{}".format(n, direction)
-            func = ngram_func_factory(n=n, training_data=training_data, look_after=looking_after)
-            xycrf.add_feature_function(func=func, name=name)
+        for suffixing in (True, False):
+            direction = 'prefix'
+            if suffixing:
+                direction = 'suffix'
+            for hyphenated in (True, False):
+                name = f'{n}-gram_{direction}_{hyphenated}'
+                func = ngram_func_factory(n=n, training_data=training_data, suffixing=suffixing, hyphenated=hyphenated)
+                xycrf.add_feature_function(func=func, name=name)
 
 
 def train_from_file(xycrf, corpus_path, model_path,
@@ -247,6 +255,7 @@ if __name__ == '__main__':
                         # "Default: 0.0", type=float)
     # parser.add_argument("--k_folds", help="Number of folds to include for cross-validation." +
                         # "Default: 0.0", type=int)
+    ns = (2,)
     args = parser.parse_args()
 
     if args.train:
@@ -267,10 +276,12 @@ if __name__ == '__main__':
                 seed = args.seed
             serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output,
                                              epochs=epochs, learning_rate=learning_rate, attenuation=attenuation,
-                                             test_size=args.test_size, seed=seed)
+                                             test_size=args.test_size, seed=seed,
+                                             ns=ns)
         else:
             serial_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output,
-                                             epochs=epochs, learning_rate=learning_rate, attenuation=attenuation)
+                                             epochs=epochs, learning_rate=learning_rate, attenuation=attenuation,
+                                             ns=ns)
         # crf = XyCrf(optimize=False)
         # parallel_weights = train_from_file(xycrf=crf, corpus_path=args.train, model_path=args.output)
         # for i in range(len(serial_weights)):
@@ -285,8 +296,8 @@ if __name__ == '__main__':
                 seed = 1066
             else:
                 seed = args.seed
-            test_from_file(xycrf=crf, corpus_path=args.test, test_size=args.test_size, seed=seed)
+            test_from_file(xycrf=crf, corpus_path=args.test, test_size=args.test_size, seed=seed, ns=ns)
         else:
-            test_from_file(xycrf=crf, corpus_path=args.test)
+            test_from_file(xycrf=crf, corpus_path=args.test, ns=ns)
 
     exit(0)

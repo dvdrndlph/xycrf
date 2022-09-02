@@ -61,6 +61,7 @@ def _gradient(params, *args):
 
 class XyCrf:
     def __init__(self, optimize=True):
+        self.testing = False
         self.optimize = optimize
         self.training_data = None
         self.feature_functions = list()
@@ -103,7 +104,7 @@ class XyCrf:
             func = self.feature_functions[j]
             feature_val = func(y_prev, y, x_bar, i)
             func_name = self.function_index_name[j]
-            if feature_val > 0.0:
+            if feature_val > 0.0 and self.testing:
                 print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
             sum_of_weighted_features += weight * feature_val
         return sum_of_weighted_features
@@ -274,7 +275,7 @@ class XyCrf:
         n = len(x_bar)
         big_z = self.big_z_forward(g_dicts)
         if big_z == 0:
-            raise Exception('Z cannot be 0.')
+            raise Exception('Z cannot be 0.')  # But it could be, couldn't it?
         if validate:
             # Forward and backward Z values are very close, but not identical.
             big_z_beta = self.big_z_backward(g_dicts)
@@ -299,6 +300,7 @@ class XyCrf:
         return expectation, big_z
 
     def infer(self, x_bar):
+        self.testing = True
         g_dicts = self.get_g_dicts(x_bar)
         y_hat = self.viterbi(x_bar, g_dicts=g_dicts)
         return y_hat
