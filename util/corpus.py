@@ -45,12 +45,12 @@ def append_example(data, ngram_sets, ns, x_bar, y_bar):
     x_0 = list()
     x_last = list()
     for _ in range(track_count):
-        x_0.append('')
-        x_last.append('')
+        x_0.append('^')
+        x_last.append('$')
     x_bar.insert(0, x_0)
     x_bar.append(x_last)
-    y_bar.insert(0, 'START')
-    y_bar.append('STOP')
+    y_bar.insert(0, '^')
+    y_bar.append('$')
     data.append((x_bar, y_bar))
     augment_ngram_sets(x_bar=x_bar, ngram_sets=ngram_sets, ns=ns)
 

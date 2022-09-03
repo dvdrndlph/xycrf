@@ -40,33 +40,33 @@ ngram_norms = dict()
 ngram_sums = dict()
 
 
-def ngram_func_factory(n, training_data, suffixing: bool, hyphenated: bool):
-    if suffixing not in ngram_counts:
-        ngram_counts[suffixing] = dict()
-        ngram_norms[suffixing] = dict()
-        ngram_sums[suffixing] = dict()
-    if hyphenated not in ngram_counts[suffixing]:
-        ngram_counts[suffixing][hyphenated] = dict()
-        ngram_norms[suffixing][hyphenated] = dict()
-        ngram_sums[suffixing][hyphenated] = dict()
-    if n not in ngram_counts[suffixing][hyphenated]:
-        ngram_counts[suffixing][hyphenated][n] = dict()
-        ngram_sums[suffixing][hyphenated][n] = 0
-        ngram_norms[suffixing][hyphenated][n] = dict()
+def load_ngram_dicts(n, training_data, fix, hyphenated):
+    if fix not in ngram_counts:
+        ngram_counts[fix] = dict()
+        ngram_norms[fix] = dict()
+        ngram_sums[fix] = dict()
+    if hyphenated not in ngram_counts[fix]:
+        ngram_counts[fix][hyphenated] = dict()
+        ngram_norms[fix][hyphenated] = dict()
+        ngram_sums[fix][hyphenated] = dict()
+    if n not in ngram_counts[fix][hyphenated]:
+        ngram_counts[fix][hyphenated][n] = dict()
+        ngram_sums[fix][hyphenated][n] = 0
+        ngram_norms[fix][hyphenated][n] = dict()
 
-    counts = ngram_counts[suffixing][hyphenated]
-    sums = ngram_sums[suffixing][hyphenated]
-    norms = ngram_norms[suffixing][hyphenated]
+    counts = ngram_counts[fix][hyphenated]
+    sums = ngram_sums[fix][hyphenated]
+    norms = ngram_norms[fix][hyphenated]
 
     for example in training_data:
         x_bar = list(itertools.chain(*example[0]))
         y_bar = list(itertools.chain(example[1]))
 
-        if suffixing:
+        if fix == 'suffix':
             for i in range(1, len(y_bar)):
                 if i + n > len(y_bar):
                     continue
-                if hyphenated:
+                if hyphenated == 'split':
                     if y_bar[i-1] != '-':
                         continue
                 else:
@@ -80,16 +80,16 @@ def ngram_func_factory(n, training_data, suffixing: bool, hyphenated: bool):
                 counts[n][new_gram] += 1
                 sums[n] += 1
         else:
-            for i in range(n - 1, len(y_bar) - 1):
-                if i - n < 0:
+            for i in range(n - 1, len(y_bar)):
+                if i - n + 1 < 0:
                     continue
-                if hyphenated:
+                if hyphenated == 'split':
                     if y_bar[i-1] != '-':
                         continue
                 else:
                     if y_bar[i-1] == '-':
                         continue
-                tuple_start = i - n
+                tuple_start = i - n + 1
                 tuple_end = i + 1
                 new_gram = tuple(x_bar[tuple_start:tuple_end])
                 if new_gram not in counts[n]:
@@ -113,57 +113,70 @@ def ngram_func_factory(n, training_data, suffixing: bool, hyphenated: bool):
         norm = (count - avg) / std_deviation
         norms[n][gram] = norm
 
+
+def load_all_n_gram_dicts(training_data, ns):
+    print("\nLoading n-grams....")
+    for n in ns:
+        for fix in ('prefix', 'suffix'):
+            for hyphenate in ('split', 'bound'):
+                load_ngram_dicts(n, training_data, fix, hyphenate)
+    print("N-grams loaded.")
+
+
+def ngram_func_factory(n, fix, hyphenated):
     def f(y_prev, y, x_bar, i):
         if y_prev != '-':
             return 0
         if y == '-':
             return 0
 
-        if y == 'START':
+        if y == '^':
             if i == 0:
                 return 1
             else:
                 return 0
-        if y == 'STOP':
+        if y == '$':
             if i == len(x_bar) - 1:
                 return 1
             else:
                 return 0
 
         flat_x_bar = list(itertools.chain(*x_bar))
-        if suffixing:
+        if fix == 'suffix':
             if 0 < i < len(x_bar) + n - 2:
                 start = i
                 end = i + n
                 gram = tuple(flat_x_bar[start:end])
-                if gram in ngram_norms[n]:
+                if gram in ngram_norms[fix][hyphenated][n]:
                     # return ngram_counts[n][gram]
-                    norm = ngram_norms[n][gram]
+                    norm = ngram_norms[fix][hyphenated][n][gram]
                     return norm
         else:
             if i - n + 1 >= 0 and i + 1 < len(flat_x_bar):
                 start = i - n + 1
                 end = i + 1
                 gram = tuple(flat_x_bar[start:end])
-                if gram in ngram_norms[n]:
+                if gram in ngram_norms[fix][hyphenated][n]:
                     # return ngram_counts[n][gram]
-                    norm = ngram_norms[n][gram]
+                    norm = ngram_norms[fix][hyphenated][n][gram]
                     return norm
         return 0
 
     return f
 
 
-def add_functions(xycrf, training_data, ns=(2,3,4,5)):
+def add_functions(xycrf, training_data, ns=(2, 3, 4, 5)):
+    load_all_n_gram_dicts(training_data=training_data, ns=ns)
+    print("Adding feature functions...")
+    func_count = 0
     for n in ns:
-        for suffixing in (True, False):
-            direction = 'prefix'
-            if suffixing:
-                direction = 'suffix'
-            for hyphenated in (True, False):
-                name = f'{n}-gram_{direction}_{hyphenated}'
-                func = ngram_func_factory(n=n, training_data=training_data, suffixing=suffixing, hyphenated=hyphenated)
+        for fix in ('suffix', 'prefix'):
+            for hyphenated in ('split', 'bound'):
+                name = f'{n}-gram_{fix}_{hyphenated}'
+                func = ngram_func_factory(n=n, fix=fix, hyphenated=hyphenated)
                 xycrf.add_feature_function(func=func, name=name)
+                func_count += 1
+    print(f"{func_count} feature functions added")
 
 
 def train_from_file(xycrf, corpus_path, model_path,
@@ -185,7 +198,7 @@ def train_from_file(xycrf, corpus_path, model_path,
         tag_set = splits['train']['tag_set']
 
     xycrf.set_tags(tag_list=list(tag_set))
-    add_functions(xycrf=xycrf, training_data=training_data)
+    add_functions(xycrf=xycrf, training_data=training_data, ns=ns)
     xycrf.training_data = training_data
     print("Done reading data")
 

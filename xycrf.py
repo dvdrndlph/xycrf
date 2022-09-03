@@ -86,8 +86,8 @@ class XyCrf:
 
     def set_tags(self, tag_list: list):
         self.tags = tag_list
-        self.tags.append('START')
-        self.tags.append('STOP')
+        self.tags.append('^')
+        self.tags.append('$')
         self.tag_count = len(self.tags)
         self.tag_index_for_name = dict()
         self.tag_name_for_index = dict()
@@ -149,7 +149,7 @@ class XyCrf:
 
     def big_u(self, k, v_tag, g_dicts):
         if k == 0:
-            if v_tag == 'START':
+            if v_tag == '^':
                 return 1.0, v_tag
             else:
                 return 0.0, v_tag  # ???
@@ -193,7 +193,7 @@ class XyCrf:
 
         t = 0
         for tag_index in range(self.tag_count):
-            max_table[t, tag_index] = g_list[t][('START', self.tag_name_for_index[tag_index])]
+            max_table[t, tag_index] = g_list[t][('^', self.tag_name_for_index[tag_index])]
 
         for t in range(1, time_len):
             for tag_index in range(1, self.tag_count):
@@ -224,7 +224,7 @@ class XyCrf:
 
         sum_total = 0
         if k_plus_1 == 0:
-            if v_tag == 'START':
+            if v_tag == '^':
                 sum_total = 1
             memo[(k_plus_1, v_tag)] = sum_total
             return sum_total
@@ -246,7 +246,7 @@ class XyCrf:
         sum_total = 0
         n = len(g_dicts)  # Length of the sequence
         if k == n - 1:
-            if u_tag == 'STOP':
+            if u_tag == '$':
                 sum_total = 1
             memo[(u_tag, k)] = sum_total
             return sum_total
@@ -262,11 +262,11 @@ class XyCrf:
 
     def big_z_forward(self, g_dicts):
         n = len(g_dicts)
-        big_z = self.alpha(n-1, 'STOP', g_dicts, memo={})
+        big_z = self.alpha(n-1, '$', g_dicts, memo={})
         return big_z
 
     def big_z_backward(self, g_dicts):
-        big_z = self.beta('START', 0, g_dicts, memo={})
+        big_z = self.beta('^', 0, g_dicts, memo={})
         return big_z
 
     def expectation_for_function(self, function_index, x_bar, g_dicts, validate=False):
