@@ -31,6 +31,9 @@ import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 from math import log, exp
 
+START_TAG = '^'
+STOP_TAG = '$'
+
 ITERATION_NUM = 0
 SUB_ITERATION_NUM = 0
 TOTAL_SUB_ITERATIONS = 0
@@ -61,18 +64,23 @@ def _gradient(params, *args):
 
 class XyCrf:
     def __init__(self, optimize=True):
-        self.testing = False
         self.optimize = optimize
         self.training_data = None
-        self.feature_functions = list()
-        self.function_index_name = dict()
+        self.feature_functions = []
+        self.function_index_name = {}
         self.tag_count = 0
-        self.tags = list()
+        self.tags = []
         self.feature_count = 0  # Number of global feature functions.
-        self.weights = list()
-        self.tag_index_for_name = dict()
-        self.tag_name_for_index = dict()
+        self.weights = []
+        self.tag_index_for_name = {}
+        self.tag_name_for_index = {}
         self.gradient = None
+
+    def print_function_weights(self):
+        weight_str = 'weights:'
+        for index in range(self.feature_count):
+            weight_str += f' {self.function_index_name[index]}: {self.weights[index]}'
+        print(weight_str)
 
     def get_gradient(self):
         return self.gradient
@@ -89,8 +97,8 @@ class XyCrf:
         self.tags.append('^')
         self.tags.append('$')
         self.tag_count = len(self.tags)
-        self.tag_index_for_name = dict()
-        self.tag_name_for_index = dict()
+        self.tag_index_for_name = {}
+        self.tag_name_for_index = {}
         tag_index = 0
         for tag_name in self.tags:
             self.tag_index_for_name[tag_name] = tag_index
@@ -102,23 +110,23 @@ class XyCrf:
         for j in range(self.feature_count):
             weight = self.weights[j]
             func = self.feature_functions[j]
-            feature_val = func(y_prev, y, x_bar, i)
             func_name = self.function_index_name[j]
-            if feature_val > 0.0 and self.testing:
-                print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
+            feature_val = func(y_prev, y, x_bar, i)
+            # if feature_val != 0:
+            #     print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
             sum_of_weighted_features += weight * feature_val
         return sum_of_weighted_features
 
     def get_g_i_dict(self, x_bar, i):
         # Our matrix is a dictionary
-        g_i_dict = dict()
+        g_i_dict = {}
         for y_prev in self.tags:
             for y in self.tags:
                 g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
     def get_g_dicts(self, x_bar):
-        g_dict_list = list()
+        g_dict_list = []
         for i in range(len(x_bar)):
             g_i = self.get_g_i_dict(x_bar, i)
             g_dict_list.append(g_i)
@@ -143,44 +151,49 @@ class XyCrf:
         self.weights = []
 
     def init_weights(self):
-        self.weights = list()
+        self.weights = []
         for j in range(len(self.feature_functions)):
             self.weights.append(0.0)
 
-    def big_u(self, k, v_tag, g_dicts):
+    def big_u(self, k, v_tag, g_dicts, memo):
+        if (k, v_tag) in memo:
+            return memo[(k, v_tag)]
+
+        value = 0
         if k == 0:
-            if v_tag == '^':
-                return 1.0, v_tag
-            else:
-                return 0.0, v_tag  # ???
+            if v_tag == START_TAG:
+                value = 1
+            memo[(k, v_tag)] = (value, v_tag)
+            return value
+
         max_value = -1 * float('inf')
-        max_u_tag = None
         for u_tag in self.tags:
-            value, _ = self.big_u(k-1, u_tag, g_dicts)
+            value, _ = self.big_u(k-1, u_tag, g_dicts, memo)
             value += g_dicts[k][(u_tag, v_tag)]
             if value > max_value:
                 max_value = value
-                max_u_tag = u_tag
-        return max_value, max_u_tag
+        memo[(k, v_tag)] = max_value
+        return max_value
 
     def viterbi(self, x_bar, g_dicts):
         n = len(x_bar)
-        big_u_dict = dict()
-        for k in range(1, n):
+        big_u_dict = {}
+        memo = {}
+        for k in range(0, n):
             for v_tag in self.tags:
-                max_value, max_u_tag = self.big_u(k=k, v_tag=v_tag, g_dicts=g_dicts)
-                big_u_dict[(k, v_tag)] = (max_value, max_u_tag)
+                max_value = self.big_u(k=k, v_tag=v_tag, g_dicts=g_dicts, memo=memo)
+                big_u_dict[(k, v_tag)] = max_value
 
-        y_hat = list()
+        y_hat = []
         max_value = -1 * float('inf')
         prior_tag = None
         for v_tag in self.tags:
-            (value, u_tag_index) = big_u_dict[(k, v_tag)]
-            if value < max_value:
+            (value, u_tag) = big_u_dict[(k, v_tag)]
+            if value > max_value:
                 max_value = value
-                prior_tag = self.tag_name_for_index[u_tag_index]
+                prior_tag = u_tag
         y_hat.append(prior_tag)
-        for k in range(n-1, 1, -1):
+        for k in range(n-1, -1, -1):
             (prior_max, prior_tag) = big_u_dict[(k, prior_tag)]
             y_hat.insert(0, prior_tag)
         return y_hat
@@ -209,7 +222,7 @@ class XyCrf:
                 max_table[t, tag_index] = max_value
                 argmax_table[t, tag_index] = max_tag_index
 
-        sequence = list()
+        sequence = []
         next_tag_index = max_table[time_len - 1].argmax()
         sequence.append(self.tag_name_for_index[next_tag_index])
         for t in range(time_len - 1, -1, -1):
@@ -300,13 +313,12 @@ class XyCrf:
         return expectation, big_z
 
     def infer(self, x_bar):
-        self.testing = True
         g_dicts = self.get_g_dicts(x_bar)
         y_hat = self.viterbi(x_bar, g_dicts=g_dicts)
         return y_hat
 
     def infer_all(self, data):
-        y_hats = list()
+        y_hats = []
         for example in data:
             x_bar = example[0]
             y_hat = self.infer(x_bar)
@@ -334,8 +346,8 @@ class XyCrf:
 
     def learn_from_functions(self, x_bar, y_bar, g_dicts):
         pool = ProcessingPool(nodes=cpu_count())
-        x_bars = list()
-        y_bars = list()
+        x_bars = []
+        y_bars = []
         for _ in range(self.feature_count):
             x_bars.append(x_bar)
             y_bars.append(y_bar)
@@ -347,7 +359,7 @@ class XyCrf:
 
     def gradient_for_all_training(self):
         function_count = len(self.feature_functions)
-        gradient = list()
+        gradient = []
         big_z = 0
         for example in self.training_data:
             x_bar = example[0]
@@ -402,7 +414,7 @@ class XyCrf:
                 x_bar = example[0]
                 y_bar = example[1]
                 g_dicts = self.get_g_dicts(x_bar=x_bar)
-                learnings = list()
+                learnings = []
                 if self.optimize:
                     learnings = self.learn_from_functions(x_bar=x_bar, y_bar=y_bar, g_dicts=g_dicts)
                 else:
@@ -414,12 +426,13 @@ class XyCrf:
                 for j in range(function_count):
                     global_feature_val = learnings[j][0]
                     expected_val = learnings[j][1]
-                    self.weights[j] = self.weights[j] + learning_rate * (
-                                      (global_feature_val - expected_val) - 2 * regularization * self.weights[j])
+                    reg_val = 2 * regularization * self.weights[j]
+                    self.weights[j] = self.weights[j] + learning_rate * ((global_feature_val - expected_val) - reg_val)
 
                 example_num += 1
                 if example_num % block_size == 0:
-                    print(f'Example {epoch_number}:{example_num} processed.')
+                    print(f'Example {epoch_number}:{example_num} processed with learning rate {learning_rate}.')
+                    self.print_function_weights()
             learning_rate *= attenuation
             epoch_number += 1
         print("The stochastic gradient has been ascended.")

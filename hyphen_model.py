@@ -32,12 +32,41 @@ from datetime import datetime
 import itertools
 from sklearn.model_selection import KFold, train_test_split
 
-from xycrf import XyCrf
+from xycrf import XyCrf, START_TAG, STOP_TAG
 from util.corpus import read_corpus, split_corpus
+
+HYPHEN_TAG = '-'
+NO_HYPHEN_TAG = '*'
+SUFFIX = 'suffix'
+PREFIX = 'prefix'
+SPLIT = 'split'
+BOUND = 'bound'
+
+VOWELS = [x for x in "aeiou"]
+IS_VOWEL = dict.fromkeys(VOWELS, True)
 
 ngram_counts = dict()
 ngram_norms = dict()
 ngram_sums = dict()
+
+
+def normalize(n, sums, counts):
+    norms = dict()
+    ngram_sum = sums[n]
+    ngram_count = len(counts[n])
+    avg = ngram_sum / ngram_count
+    sum_of_squared_deviations = 0
+    for gram in counts[n]:
+        gram_count = counts[n][gram]
+        deviation = gram_count - avg
+        sum_of_squared_deviations += deviation**2
+    variance = sum_of_squared_deviations / len(counts)
+    std_deviation = math.sqrt(variance)
+    for gram in counts[n]:
+        count = counts[n][gram]
+        norm = (count - avg) / std_deviation
+        norms[gram] = norm
+    return norms
 
 
 def load_ngram_dicts(n, training_data, fix, hyphenated):
@@ -62,15 +91,15 @@ def load_ngram_dicts(n, training_data, fix, hyphenated):
         x_bar = list(itertools.chain(*example[0]))
         y_bar = list(itertools.chain(example[1]))
 
-        if fix == 'suffix':
+        if fix == SUFFIX:
             for i in range(1, len(y_bar)):
                 if i + n > len(y_bar):
                     continue
-                if hyphenated == 'split':
-                    if y_bar[i-1] != '-':
+                if hyphenated == SPLIT:
+                    if y_bar[i-1] != HYPHEN_TAG:
                         continue
                 else:
-                    if y_bar[i-1] == '-':
+                    if y_bar[i-1] == HYPHEN_TAG:
                         continue
                 tuple_start = i
                 tuple_end = i + n
@@ -83,11 +112,11 @@ def load_ngram_dicts(n, training_data, fix, hyphenated):
             for i in range(n - 1, len(y_bar)):
                 if i - n + 1 < 0:
                     continue
-                if hyphenated == 'split':
-                    if y_bar[i-1] != '-':
+                if hyphenated == SPLIT:
+                    if y_bar[i-1] != HYPHEN_TAG:
                         continue
                 else:
-                    if y_bar[i-1] == '-':
+                    if y_bar[i-1] == HYPHEN_TAG:
                         continue
                 tuple_start = i - n + 1
                 tuple_end = i + 1
@@ -98,51 +127,29 @@ def load_ngram_dicts(n, training_data, fix, hyphenated):
                 sums[n] += 1
 
     # Normalize function return values.
-    ngram_sum = sums[n]
-    ngram_count = len(counts[n])
-    avg = ngram_sum / ngram_count
-    sum_of_squared_deviations = 0
-    for gram in counts[n]:
-        gram_count = counts[n][gram]
-        deviation = gram_count - avg
-        sum_of_squared_deviations += deviation**2
-    variance = sum_of_squared_deviations / len(counts)
-    std_deviation = math.sqrt(variance)
-    for gram in counts[n]:
-        count = counts[n][gram]
-        norm = (count - avg) / std_deviation
-        norms[n][gram] = norm
+    norms[n] = normalize(n, sums, counts)
 
 
 def load_all_n_gram_dicts(training_data, ns):
-    print("\nLoading n-grams....")
+    print("\nLoading n-grams...")
     for n in ns:
-        for fix in ('prefix', 'suffix'):
-            for hyphenate in ('split', 'bound'):
+        for fix in (PREFIX, SUFFIX):
+            for hyphenate in (SPLIT, BOUND):
                 load_ngram_dicts(n, training_data, fix, hyphenate)
     print("N-grams loaded.")
 
 
 def ngram_func_factory(n, fix, hyphenated):
     def f(y_prev, y, x_bar, i):
-        if y_prev != '-':
+        if y == START_TAG:
             return 0
-        if y == '-':
+        if y_prev != HYPHEN_TAG:
             return 0
-
-        if y == '^':
-            if i == 0:
-                return 1
-            else:
-                return 0
-        if y == '$':
-            if i == len(x_bar) - 1:
-                return 1
-            else:
-                return 0
+        if y == HYPHEN_TAG:
+            return 0
 
         flat_x_bar = list(itertools.chain(*x_bar))
-        if fix == 'suffix':
+        if fix == SUFFIX:
             if 0 < i < len(x_bar) + n - 2:
                 start = i
                 end = i + n
@@ -165,13 +172,35 @@ def ngram_func_factory(n, fix, hyphenated):
     return f
 
 
+def double_consonant_func(y_prev, y, x_bar, i):
+    if 1 < i < len(x_bar) - 1:
+        ch = x_bar[i][0]
+        ch_prev = x_bar[i-1][0]
+        if ch_prev == ch and ch_prev not in IS_VOWEL and ch not in IS_VOWEL and y_prev == HYPHEN_TAG:
+            return 1
+    return 0
+
+
+def double_hyphen_func(y_prev, y, x_bar, i):
+    if i < 2:
+        return 0
+
+    if y_prev == HYPHEN_TAG and y == HYPHEN_TAG:
+        return 1
+    return 0
+
+
 def add_functions(xycrf, training_data, ns=(2, 3, 4, 5)):
     load_all_n_gram_dicts(training_data=training_data, ns=ns)
     print("Adding feature functions...")
-    func_count = 0
+
+    xycrf.add_feature_function(func=double_consonant_func, name="double_consonant")
+    xycrf.add_feature_function(func=double_hyphen_func, name="double_hyphen")
+    func_count = 2
+
     for n in ns:
-        for fix in ('suffix', 'prefix'):
-            for hyphenated in ('split', 'bound'):
+        for fix in (SUFFIX, PREFIX):
+            for hyphenated in (SPLIT, BOUND):
                 name = f'{n}-gram_{fix}_{hyphenated}'
                 func = ngram_func_factory(n=n, fix=fix, hyphenated=hyphenated)
                 xycrf.add_feature_function(func=func, name=name)
