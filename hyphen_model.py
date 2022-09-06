@@ -50,21 +50,50 @@ ngram_norms = dict()
 ngram_sums = dict()
 
 
-def normalize(n, sums, counts):
+def normalize(counts):
+    """
+    Normalize n-gram counts to mean 0 and variance 1.
+    :param counts: Dictionary mapping n-gram tuple keys to their counts.
+    :return: A dictionary of normalized values.
+    """
     norms = dict()
-    ngram_sum = sums[n]
-    ngram_count = len(counts[n])
-    avg = ngram_sum / ngram_count
+    ngram_count = len(counts)
+    count_sum = 0
+    for gram in counts:
+        count_sum += counts[gram]
+
+    avg = count_sum / ngram_count
     sum_of_squared_deviations = 0
-    for gram in counts[n]:
-        gram_count = counts[n][gram]
+    for gram in counts:
+        gram_count = counts[gram]
         deviation = gram_count - avg
         sum_of_squared_deviations += deviation**2
     variance = sum_of_squared_deviations / len(counts)
     std_deviation = math.sqrt(variance)
-    for gram in counts[n]:
-        count = counts[n][gram]
+    for gram in counts:
+        count = counts[gram]
         norm = (count - avg) / std_deviation
+        norms[gram] = norm
+    return norms
+
+
+def normalize_simple(counts):
+    """
+    Normalize counts to scores between 0 and 1.
+    :param counts: Dictionary mapping n-gram tuple keys to their counts.
+    :return: Dictionary of normalized scores for each ngram.
+    """
+    norms = dict()
+    ngram_count = len(counts)
+    largest_count = 0
+    for gram in counts:
+        if counts[gram] > largest_count:
+            largest_count = counts[gram]
+
+    normalizer = largest_count * largest_count
+    for gram in counts:
+        normed_count = counts[gram] * largest_count
+        norm = normed_count / normalizer
         norms[gram] = norm
     return norms
 
@@ -127,7 +156,8 @@ def load_ngram_dicts(n, training_data, fix, hyphenated):
                 sums[n] += 1
 
     # Normalize function return values.
-    norms[n] = normalize(n, sums, counts)
+    # norms[n] = normalize(counts[n])
+    norms[n] = normalize_simple(counts[n])
 
 
 def load_all_n_gram_dicts(training_data, ns):
@@ -141,8 +171,14 @@ def load_all_n_gram_dicts(training_data, ns):
 
 def ngram_func_factory(n, fix, hyphenated):
     def f(y_prev, y, x_bar, i):
-        if y == START_TAG:
-            return 0
+        # if i == 0:
+        #     return 0
+        # if i == 1 and y_prev != START_TAG:
+        #     return 0
+        # if i == len(x_bar) - 1 and y != STOP_TAG:
+        #     return 0
+        # if y == START_TAG:
+        #     return 0
         if y_prev != HYPHEN_TAG:
             return 0
         if y == HYPHEN_TAG:

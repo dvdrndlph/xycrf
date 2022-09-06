@@ -64,6 +64,7 @@ def _gradient(params, *args):
 
 class XyCrf:
     def __init__(self, optimize=True):
+        self.testing = False
         self.optimize = optimize
         self.training_data = None
         self.feature_functions = []
@@ -112,16 +113,22 @@ class XyCrf:
             func = self.feature_functions[j]
             func_name = self.function_index_name[j]
             feature_val = func(y_prev, y, x_bar, i)
-            # if feature_val != 0:
-            #     print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
+            if feature_val != 0 and self.testing:
+                print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
             sum_of_weighted_features += weight * feature_val
         return sum_of_weighted_features
 
     def get_g_i_dict(self, x_bar, i):
         # Our matrix is a dictionary
+        last_index = len(x_bar) - 1
         g_i_dict = {}
         for y_prev in self.tags:
             for y in self.tags:
+                # if (y == START_TAG and i != 0) or \
+                #         (y_prev == START_TAG and i != 1) or \
+                #         (y == STOP_TAG and i != last_index):
+                #     g_i_dict[(y_prev, y)] = 0.0
+                # else:
                 g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
@@ -163,12 +170,12 @@ class XyCrf:
         if k == 0:
             if v_tag == START_TAG:
                 value = 1
-            memo[(k, v_tag)] = (value, v_tag)
+            memo[(k, v_tag)] = value
             return value
 
         max_value = -1 * float('inf')
         for u_tag in self.tags:
-            value, _ = self.big_u(k-1, u_tag, g_dicts, memo)
+            value = self.big_u(k-1, u_tag, g_dicts, memo)
             value += g_dicts[k][(u_tag, v_tag)]
             if value > max_value:
                 max_value = value
@@ -184,18 +191,26 @@ class XyCrf:
                 max_value = self.big_u(k=k, v_tag=v_tag, g_dicts=g_dicts, memo=memo)
                 big_u_dict[(k, v_tag)] = max_value
 
-        y_hat = []
-        max_value = -1 * float('inf')
-        prior_tag = None
-        for v_tag in self.tags:
-            (value, u_tag) = big_u_dict[(k, v_tag)]
-            if value > max_value:
-                max_value = value
-                prior_tag = u_tag
-        y_hat.append(prior_tag)
-        for k in range(n-1, -1, -1):
-            (prior_max, prior_tag) = big_u_dict[(k, prior_tag)]
-            y_hat.insert(0, prior_tag)
+        k_tag = None
+        last_max = -1 * float('inf')
+        for v_tag in sorted(self.tags):
+            tag_max = big_u_dict[(n-1, v_tag)]
+            if tag_max > last_max:
+                last_max = tag_max
+                k_tag = v_tag
+        y_hat = [k_tag]
+        for k in range(n-1, 0, -1):
+            max_value = -1 * float('inf')
+            max_tag = None
+            for u_tag in sorted(self.tags):
+                value = big_u_dict[(k-1, u_tag)]
+                value += g_dicts[k][(u_tag, k_tag)]
+                if value > max_value:
+                    max_value = value
+                    max_tag = u_tag
+            y_hat.insert(0, max_tag)
+            k_tag = max_tag
+
         return y_hat
 
     def viterbi_iterative(self, x_bar, g_list):
@@ -313,6 +328,7 @@ class XyCrf:
         return expectation, big_z
 
     def infer(self, x_bar):
+        self.testing = True
         g_dicts = self.get_g_dicts(x_bar)
         y_hat = self.viterbi(x_bar, g_dicts=g_dicts)
         return y_hat
