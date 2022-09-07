@@ -1,4 +1,6 @@
 __author__ = 'David Randolph'
+
+import itertools
 # Copyright (c) 2022 David A. Randolph.
 #
 # Permission is hereby granted, free of charge, to any person
@@ -113,22 +115,17 @@ class XyCrf:
             func = self.feature_functions[j]
             func_name = self.function_index_name[j]
             feature_val = func(y_prev, y, x_bar, i)
-            if feature_val != 0 and self.testing:
-                print(f'{func_name}({y_prev},{y}, {x_bar}, {i}) returned {feature_val}')
+            # if feature_val != 0 and self.testing:
+            #     x_bar_str = "".join(list(itertools.chain(*x_bar)))
+            #     print(f'{func_name}({y_prev},{y}, {x_bar_str}, {i}) returned {feature_val}')
             sum_of_weighted_features += weight * feature_val
         return sum_of_weighted_features
 
     def get_g_i_dict(self, x_bar, i):
-        # Our matrix is a dictionary
-        last_index = len(x_bar) - 1
+        # Our matrix is a dictionary.
         g_i_dict = {}
         for y_prev in self.tags:
             for y in self.tags:
-                # if (y == START_TAG and i != 0) or \
-                #         (y_prev == START_TAG and i != 1) or \
-                #         (y == STOP_TAG and i != last_index):
-                #     g_i_dict[(y_prev, y)] = 0.0
-                # else:
                 g_i_dict[(y_prev, y)] = self.get_g_i(y_prev, y, x_bar, i)
         return g_i_dict
 
@@ -339,7 +336,6 @@ class XyCrf:
             x_bar = example[0]
             y_hat = self.infer(x_bar)
             y_hats.append(y_hat)
-            exit(1)
         return y_hats
 
     def big_f(self, function_index, x_bar, y_bar):

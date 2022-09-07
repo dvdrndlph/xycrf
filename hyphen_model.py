@@ -46,8 +46,8 @@ VOWELS = [x for x in "aeiou"]
 IS_VOWEL = dict.fromkeys(VOWELS, True)
 
 ngram_counts = dict()
-ngram_norms = dict()
 ngram_sums = dict()
+ngram_norms = dict()
 
 
 def normalize(counts):
@@ -157,7 +157,7 @@ def load_ngram_dicts(n, training_data, fix, hyphenated):
 
     # Normalize function return values.
     # norms[n] = normalize(counts[n])
-    norms[n] = normalize_simple(counts[n])
+    # norms[n] = normalize_simple(counts[n])
 
 
 def load_all_n_gram_dicts(training_data, ns):
@@ -169,41 +169,44 @@ def load_all_n_gram_dicts(training_data, ns):
     print("N-grams loaded.")
 
 
-def ngram_func_factory(n, fix, hyphenated):
+def get_ngram_count(x_bar, i, n, fix, hyphenated):
+    flat_x_bar = list(itertools.chain(*x_bar))
+    count = 0
+    if fix == SUFFIX:
+        if 0 < i < len(x_bar) + n - 2:
+            start = i
+            end = i + n
+            gram = tuple(flat_x_bar[start:end])
+            if gram in ngram_counts[fix][hyphenated][n]:
+                count = ngram_counts[fix][hyphenated][n][gram]
+    else:
+        if i - n + 1 >= 0 and i + 1 < len(flat_x_bar):
+            start = i - n + 1
+            end = i + 1
+            gram = tuple(flat_x_bar[start:end])
+            if gram in ngram_counts[fix][hyphenated][n]:
+                count = ngram_counts[fix][hyphenated][n][gram]
+    return count
+
+
+def get_count_ratio(x_bar, i, n, fix):
+    split_count = get_ngram_count(x_bar=x_bar, i=i, n=n, fix=fix, hyphenated=SPLIT)
+    if split_count == 0:
+        return 0
+    bound_count = get_ngram_count(x_bar=x_bar, i=i, n=n, fix=fix, hyphenated=BOUND)
+    value = split_count / (split_count + bound_count)
+    return value
+
+
+def combined_ngram_func_factory(n, fix):
     def f(y_prev, y, x_bar, i):
-        # if i == 0:
-        #     return 0
-        # if i == 1 and y_prev != START_TAG:
-        #     return 0
-        # if i == len(x_bar) - 1 and y != STOP_TAG:
-        #     return 0
-        # if y == START_TAG:
-        #     return 0
         if y_prev != HYPHEN_TAG:
             return 0
-        if y == HYPHEN_TAG:
+        if y == STOP_TAG and i != len(x_bar) - 1:
             return 0
 
-        flat_x_bar = list(itertools.chain(*x_bar))
-        if fix == SUFFIX:
-            if 0 < i < len(x_bar) + n - 2:
-                start = i
-                end = i + n
-                gram = tuple(flat_x_bar[start:end])
-                if gram in ngram_norms[fix][hyphenated][n]:
-                    # return ngram_counts[n][gram]
-                    norm = ngram_norms[fix][hyphenated][n][gram]
-                    return norm
-        else:
-            if i - n + 1 >= 0 and i + 1 < len(flat_x_bar):
-                start = i - n + 1
-                end = i + 1
-                gram = tuple(flat_x_bar[start:end])
-                if gram in ngram_norms[fix][hyphenated][n]:
-                    # return ngram_counts[n][gram]
-                    norm = ngram_norms[fix][hyphenated][n][gram]
-                    return norm
-        return 0
+        value = get_count_ratio(x_bar=x_bar, i=i, n=n, fix=fix)
+        return value
 
     return f
 
@@ -217,11 +220,8 @@ def double_consonant_func(y_prev, y, x_bar, i):
     return 0
 
 
-def double_hyphen_func(y_prev, y, x_bar, i):
-    if i < 2:
-        return 0
-
-    if y_prev == HYPHEN_TAG and y == HYPHEN_TAG:
+def legal_internal_func(y_prev, y, x_bar, i):
+    if 0 < i < len(x_bar) - 1 and y in (HYPHEN_TAG, NO_HYPHEN_TAG):
         return 1
     return 0
 
@@ -231,16 +231,15 @@ def add_functions(xycrf, training_data, ns=(2, 3, 4, 5)):
     print("Adding feature functions...")
 
     xycrf.add_feature_function(func=double_consonant_func, name="double_consonant")
-    xycrf.add_feature_function(func=double_hyphen_func, name="double_hyphen")
+    xycrf.add_feature_function(func=legal_internal_func, name="legal_internal")
     func_count = 2
 
     for n in ns:
         for fix in (SUFFIX, PREFIX):
-            for hyphenated in (SPLIT, BOUND):
-                name = f'{n}-gram_{fix}_{hyphenated}'
-                func = ngram_func_factory(n=n, fix=fix, hyphenated=hyphenated)
-                xycrf.add_feature_function(func=func, name=name)
-                func_count += 1
+            name = f'{n}-gram_{fix}'
+            func = combined_ngram_func_factory(n=n, fix=fix)
+            xycrf.add_feature_function(func=func, name=name)
+            func_count += 1
     print(f"{func_count} feature functions added")
 
 
@@ -248,13 +247,13 @@ def train_from_file(xycrf, corpus_path, model_path,
                     epochs, learning_rate, attenuation,
                     test_size=0.0, seed=None, ns=(2, 3, 4, 5)):
     """
-    Estimates parameters using conjugate gradient methods.(L-BFGS-B used)
+    Estimates parameters using stochastic gradient ascent.
     """
     start_dt = datetime.now()
     print('[%s] Start training' % start_dt)
 
     # Read the training corpus
-    print("* Reading training data ... ", end="")
+    print("* Reading training data... ", end="")
     if test_size == 0 or seed is None:
         training_data, tag_set, _ = read_corpus(corpus_path, ns=ns)
     else:
@@ -299,8 +298,11 @@ def test_from_file(xycrf, corpus_path, test_size=0.0, seed=None, ns=(2, 3, 4, 5)
     correct_count = 0
     for x_bar, y_bar in test_data:
         y_bar_pred = xycrf.infer(x_bar)
-        print(x_bar)
-        print(y_bar_pred)
+        flat_x_bar = list(itertools.chain(*x_bar))
+        print('PREDICTION: ', end='')
+        print("".join(flat_x_bar))
+        print('            ', end='')
+        print("".join(y_bar_pred))
         for i in range(len(y_bar)):
             total_count += 1
             if y_bar[i] == y_bar_pred[i]:
@@ -333,7 +335,8 @@ if __name__ == '__main__':
                         # "Default: 0.0", type=float)
     # parser.add_argument("--k_folds", help="Number of folds to include for cross-validation." +
                         # "Default: 0.0", type=int)
-    ns = (2,)
+    # ns = (2,)
+    ns = (2, 3, 4,5)
     args = parser.parse_args()
 
     if args.train:
