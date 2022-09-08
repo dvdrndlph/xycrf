@@ -30,7 +30,7 @@ $ python3 hyphen_model.py --test data/hyphen/english/all.data --test_size 0.20 \
 Data: The Trogkanis/Elkan English dataset, provided in [data/hyphen/english](https://github.com/dvdrndlph/xycrf/data/hyphen/english).
 This contains 66,001 hyphenated English words. 
 
-Our model compares unfavorably to the published results in
+Our model right now compares quite unfavorably to the published results in
 the [Trogkanis/Elkan](https://aclanthology.org/P10-1038/) ACL paper. We also run about four times slower on hardware
 that is ten years newer, using a training method that makes no guarantees about convergence to global maximum goodness. But it does inspire some confidence in the underlying CRF implementation.
 
@@ -47,10 +47,11 @@ that is ten years newer, using a training method that makes no guarantees about 
 MIT
 
 ## Thanks
-Inspired by Seong-Jin Kim's [crf package](https://github.com/lancifollia/crf).
-Thanks to the lectures and notes of Charles Elkan, who finally explained all this well enough
-for me to be able to do this. Thanks to Oscar Laird, Paul Landes, and Abhinav Kumar
-for the conversations.
+Inspired by Seong-Jin Kim's [crf package](https://github.com/lancifollia/crf). His code is
+*much* faster and quite approachable.
+Thanks to the lectures and notes of Charles Elkan, who is the only source to explain
+all this well enough for me to implement it. *Sine qua non.*
+Thanks to Oscar Laird, Paul Landes, and Abhinav Kumar for the conversations.
 
 ## References
 - Elkan, C. (2014). <i>Log-linear models and conditional random fields</i>. http://cseweb.ucsd.edu/~elkan/250B/CRFs.pdf
