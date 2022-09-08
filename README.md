@@ -11,8 +11,8 @@ provided in the data/hyphen directory.
 ### Training
 ```sh
 # example
-$ python3 hyphen_model.py --train data/hyphen/english/all.data --epochs 3 --rate 1 \
-    --attenuation 0.1 --output /tmp/hyphen_english_model_3ep.dill
+$ python3 hyphen_model.py --train data/hyphen/english/all.data --epochs 3 --rate 0.2 \
+     --attenuation 0.1 --output /tmp/hyphen_engl_model_3ep_ts20.dill --test_size 0.20
 ```
 
 ### Testing
