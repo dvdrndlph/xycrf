@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-# Copyright (c) 2015 Seong-Jin Kim.
+# Copyright (c) 2022 David A. Randolph
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation

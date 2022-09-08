@@ -1,6 +1,4 @@
 __author__ = 'David Randolph'
-
-import itertools
 # Copyright (c) 2022 David A. Randolph.
 #
 # Permission is hereby granted, free of charge, to any person
@@ -462,4 +460,4 @@ def _learn_from_function(arg, **kwarg):
 if __name__ == '__main__':
     rh_tags = ['>1', '>2', '>3', '>4', '>5']
     xyc = XyCrf()
-    xyc.set_tags(tag_list=rh_tags)
+    xyc.set_tags(tag_set=set(rh_tags))

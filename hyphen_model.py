@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # Copyright (c) 2022 David A. Randolph.
-# Copyright (c) 2015 Seong-Jin Kim.
 #
 # Permission is hereby granted, free of charge, to any person
 # obtaining a copy of this software and associated documentation
@@ -23,9 +22,6 @@
 # FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 # OTHER DEALINGS IN THE SOFTWARE.
 #
-# Some methods and program structure inspired by (borrowed from)
-# Seong-Jin Kim's crf package (https://github.com/lancifollia/crf).
-# Many thanks.
 import argparse
 import math
 from datetime import datetime
