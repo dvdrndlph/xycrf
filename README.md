@@ -53,4 +53,4 @@ for me to be able to do this.
 - <div class="csl-entry">Sutton, C., &#38; McCallum, A. (2011). An introduction to conditional random fields. <i>Foundations and Trends in Machine Learning</i>, <i>4</i>(4), 267–373. https://doi.org/10.1561/2200000013</div>
 - <div class="csl-entry">Elkan, C. (2014). <i>Log-linear models and conditional random fields</i>. http://cseweb.ucsd.edu/~elkan/250B/CRFs.pdf</div>
 - <div class="csl-entry">Elkan, C. (2014). <i>Maximum Likelihood, Logistic Regression, and Stochastic Gradient Training</i>.</div>
-- Trogkanis, N., &#38; Elkan, C. (2010). Conditional Random Fields for Word Hyphenation. <i>Proceedings of the 48th Annual Meeting of the Association for Computational Linguistics</i>, 366–374.
+- Trogkanis, N., &#38; Elkan, C. (2010). Conditional random fields for word hyphenation. <i>Proceedings of the 48th Annual Meeting of the Association for Computational Linguistics</i>, 366–374.
