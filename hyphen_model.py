@@ -200,9 +200,15 @@ def get_count_ratio(x_bar, i, n, fix):
 
 def combined_ngram_func_factory(n, fix):
     def f(y_prev, y, x_bar, i):
+        if i == 0:
+            return 0
         if y_prev != HYPHEN_TAG:
             return 0
+        if y == HYPHEN_TAG:
+            return 0
         if y == STOP_TAG and i != len(x_bar) - 1:
+            return 0
+        if y != STOP_TAG and i == len(x_bar) - 1:
             return 0
 
         value = get_count_ratio(x_bar=x_bar, i=i, n=n, fix=fix)
@@ -211,7 +217,7 @@ def combined_ngram_func_factory(n, fix):
     return f
 
 
-def double_consonant_func(y_prev, y, x_bar, i):
+def double_consonant(y_prev, y, x_bar, i):
     if 1 < i < len(x_bar) - 1:
         ch = x_bar[i][0]
         ch_prev = x_bar[i-1][0]
@@ -220,8 +226,37 @@ def double_consonant_func(y_prev, y, x_bar, i):
     return 0
 
 
-def legal_internal_func(y_prev, y, x_bar, i):
+def one_letter_syllable(y_prev, y, x_bar, i):
+    # One-letter syllables are (almost?) always vowels.
+    last_index = len(x_bar) - 1
+    ch = x_bar[i][0]
+    if last_index > i > 1 and y_prev == HYPHEN_TAG and ch not in IS_VOWEL and y == HYPHEN_TAG:
+        return 1
+    return 0
+
+
+def leading_one_letter_syllable(y_prev, y, x_bar, i):
+    # One-letter syllables are (almost?) always vowels.
+    ch = x_bar[i][0]
+    if i == 1 and ch not in IS_VOWEL and y == HYPHEN_TAG:
+        return 1
+    return 0
+
+
+def valid_internal(y_prev, y, x_bar, i):
     if 0 < i < len(x_bar) - 1 and y in (HYPHEN_TAG, NO_HYPHEN_TAG):
+        return 1
+    return 0
+
+
+def valid_start(y_prev, y, x_bar, i):
+    if i == 1 and y_prev == START_TAG:
+        return 1
+    return 0
+
+
+def valid_stop(y_prev, y, x_bar, i):
+    if i == len(x_bar) - 1 and y == STOP_TAG:
         return 1
     return 0
 
@@ -230,17 +265,19 @@ def add_functions(xycrf, training_data, ns=(2, 3, 4, 5)):
     load_all_n_gram_dicts(training_data=training_data, ns=ns)
     print("Adding feature functions...")
 
-    xycrf.add_feature_function(func=double_consonant_func, name="double_consonant")
-    xycrf.add_feature_function(func=legal_internal_func, name="legal_internal")
-    func_count = 2
+    # xycrf.add_feature_function(func=valid_start, name="valid_start")
+    # xycrf.add_feature_function(func=valid_stop, name="valid_stop")
+    xycrf.add_feature_function(func=valid_internal, name="valid_internal")
+    xycrf.add_feature_function(func=double_consonant, name="double_consonant")
+    xycrf.add_feature_function(func=one_letter_syllable, name="one_letter_syllable")
+    xycrf.add_feature_function(func=leading_one_letter_syllable, name="leading_one_letter_syllable")
 
     for n in ns:
         for fix in (SUFFIX, PREFIX):
             name = f'{n}-gram_{fix}'
             func = combined_ngram_func_factory(n=n, fix=fix)
             xycrf.add_feature_function(func=func, name=name)
-            func_count += 1
-    print(f"{func_count} feature functions added")
+    print(f"{xycrf.feature_count} feature functions added")
 
 
 def train_from_file(xycrf, corpus_path, model_path,
@@ -261,12 +298,12 @@ def train_from_file(xycrf, corpus_path, model_path,
         training_data = splits['train']['data']
         tag_set = splits['train']['tag_set']
 
-    xycrf.set_tags(tag_list=list(tag_set))
+    xycrf.set_tags(tag_set=tag_set)
     add_functions(xycrf=xycrf, training_data=training_data, ns=ns)
     xycrf.training_data = training_data
     print("Done reading data")
 
-    print("* Number of labels: {}".format(xycrf.tag_count))
+    print("* Number of tags: {}".format(xycrf.tag_count))
     print("* Number of features: {}".format(xycrf.feature_count))
     print("* Number of training examples: {}".format(len(training_data)))
 
@@ -297,15 +334,18 @@ def test_from_file(xycrf, corpus_path, test_size=0.0, seed=None, ns=(2, 3, 4, 5)
     total_count = 0
     correct_count = 0
     for x_bar, y_bar in test_data:
-        y_bar_pred = xycrf.infer(x_bar)
+        y_hat = xycrf.infer(x_bar)
         flat_x_bar = list(itertools.chain(*x_bar))
-        print('PREDICTION: ', end='')
+        print('WORD:      ', end='')
         print("".join(flat_x_bar))
-        print('            ', end='')
-        print("".join(y_bar_pred))
-        for i in range(len(y_bar)):
+        print('PREDICTED: ', end='')
+        print("".join(y_hat))
+        print('CORRECT:   ', end='')
+        print("".join(y_bar))
+        print("")
+        for i in range(1, len(y_bar) - 1):
             total_count += 1
-            if y_bar[i] == y_bar_pred[i]:
+            if y_bar[i] == y_hat[i]:
                 correct_count += 1
 
     print('Correct: %d' % correct_count)
@@ -336,7 +376,7 @@ if __name__ == '__main__':
     # parser.add_argument("--k_folds", help="Number of folds to include for cross-validation." +
                         # "Default: 0.0", type=int)
     # ns = (2,)
-    ns = (2, 3, 4,5)
+    ns = (2, 3, 4, 5)
     args = parser.parse_args()
 
     if args.train:

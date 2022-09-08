@@ -72,7 +72,7 @@ class XyCrf:
         self.feature_functions = []
         self.function_index_name = {}
         self.tag_count = 0
-        self.tags = []
+        self.tags = set()
         self.feature_count = 0  # Number of global feature functions.
         self.weights = []
         self.tag_index_for_name = {}
@@ -95,10 +95,10 @@ class XyCrf:
         for i in range(self.feature_count):
             self.gradient[i] = new_values[i]
 
-    def set_tags(self, tag_list: list):
-        self.tags = tag_list
-        self.tags.append('^')
-        self.tags.append('$')
+    def set_tags(self, tag_set: set):
+        self.tags = tag_set
+        self.tags.add(START_TAG)
+        self.tags.add(STOP_TAG)
         self.tag_count = len(self.tags)
         self.tag_index_for_name = {}
         self.tag_name_for_index = {}
@@ -210,46 +210,13 @@ class XyCrf:
 
         return y_hat
 
-    def viterbi_iterative(self, x_bar, g_list):
-        # Modeled after Seong-Jin Kim's implementation.
-        time_len = len(x_bar)
-        max_table = np.zeros((time_len, self.tag_count))
-        argmax_table = np.zeros((time_len, self.tag_count), dtype='int64')
-
-        t = 0
-        for tag_index in range(self.tag_count):
-            max_table[t, tag_index] = g_list[t][('^', self.tag_name_for_index[tag_index])]
-
-        for t in range(1, time_len):
-            for tag_index in range(1, self.tag_count):
-                tag = self.tag_name_for_index[tag_index]
-                max_value = -float('inf')
-                max_tag_index = None
-                for prev_tag_index in range(1, self.tag_count):
-                    prev_tag = self.tag_name_for_index[prev_tag_index]
-                    value = max_table[t - 1, prev_tag_index] * g_list[t][(prev_tag, tag)]
-                    if value > max_value:
-                        max_value = value
-                        max_tag_index = prev_tag_index
-                max_table[t, tag_index] = max_value
-                argmax_table[t, tag_index] = max_tag_index
-
-        sequence = []
-        next_tag_index = max_table[time_len - 1].argmax()
-        sequence.append(self.tag_name_for_index[next_tag_index])
-        for t in range(time_len - 1, -1, -1):
-            next_tag_index = argmax_table[t, next_tag_index]
-            sequence.append(self.tag_name_for_index[next_tag_index])
-        # return [self.label_dic[label_id] for label_id in sequence[::-1][1:]]
-        return sequence
-
     def alpha(self, k_plus_1, v_tag, g_dicts, memo):
         if (k_plus_1, v_tag) in memo:
             return memo[(k_plus_1, v_tag)]
 
         sum_total = 0
         if k_plus_1 == 0:
-            if v_tag == '^':
+            if v_tag == START_TAG:
                 sum_total = 1
             memo[(k_plus_1, v_tag)] = sum_total
             return sum_total
@@ -271,7 +238,7 @@ class XyCrf:
         sum_total = 0
         n = len(g_dicts)  # Length of the sequence
         if k == n - 1:
-            if u_tag == '$':
+            if u_tag == STOP_TAG:
                 sum_total = 1
             memo[(u_tag, k)] = sum_total
             return sum_total
@@ -287,11 +254,11 @@ class XyCrf:
 
     def big_z_forward(self, g_dicts):
         n = len(g_dicts)
-        big_z = self.alpha(n-1, '$', g_dicts, memo={})
+        big_z = self.alpha(n-1, STOP_TAG, g_dicts, memo={})
         return big_z
 
     def big_z_backward(self, g_dicts):
-        big_z = self.beta('^', 0, g_dicts, memo={})
+        big_z = self.beta(START_TAG, 0, g_dicts, memo={})
         return big_z
 
     def expectation_for_function(self, function_index, x_bar, g_dicts, validate=False):
