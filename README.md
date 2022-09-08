@@ -2,8 +2,8 @@
 A first-order linear-chain CRF package supporting true feature functions of both observations and tags (X and Y),
 per the original (some might say painfully naive) CRF formalism.
 
-At this point, xycrf relies exclusively on stochastic gradient ascent for training.
-
+At this point, xycrf relies exclusively on stochastic gradient ascent for training. L-BFGS training options are
+forthcoming, but performance of L-BFGS promises to be *painfully* slow in this context.
 
 ## Usage
  
@@ -32,7 +32,7 @@ This contains 66,001 hyphenated English words.
 
 Our model compares unfavorably to the published results in
 the [Trogkanis/Elkan](https://aclanthology.org/P10-1038/) ACL paper. We also run about four times slower on hardware
-that is ten years newer. But it does inspire some confidence in the underlying CRF implementation.
+that is ten years newer, using a training method that makes no guarantees about convergence to global maximum goodness. But it does inspire some confidence in the underlying CRF implementation.
 
 **Accuracy**
 
