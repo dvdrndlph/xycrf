@@ -331,8 +331,10 @@ def test_from_file(xycrf, corpus_path, test_size=0.0, seed=None, ns=(2, 3, 4, 5)
         test_data = splits['test']['data']
         tag_set = splits['test']['tag_set']
 
-    total_count = 0
-    correct_count = 0
+    total_word_count = 0
+    correct_word_count = 0
+    total_char_count = 0
+    correct_char_count = 0
     for x_bar, y_bar in test_data:
         y_hat = xycrf.infer(x_bar)
         flat_x_bar = list(itertools.chain(*x_bar))
@@ -343,14 +345,23 @@ def test_from_file(xycrf, corpus_path, test_size=0.0, seed=None, ns=(2, 3, 4, 5)
         print('CORRECT:   ', end='')
         print("".join(y_bar))
         print("")
+        good_word = True
         for i in range(1, len(y_bar) - 1):
-            total_count += 1
+            total_char_count += 1
             if y_bar[i] == y_hat[i]:
-                correct_count += 1
-
-    print('Correct: %d' % correct_count)
-    print('Total: %d' % total_count)
-    print('Performance: %f' % (correct_count / total_count))
+                correct_char_count += 1
+            else:
+                good_word = False
+        if good_word:
+            correct_word_count += 1
+        total_word_count += 1
+    print(f'Correctly tagged character count: {correct_char_count}')
+    print(f'Total character count:            {total_char_count}')
+    print("Character-level accuracy:         {}".format(correct_char_count / total_char_count))
+    print("")
+    print(f'Correctly labeled word count: {correct_word_count}')
+    print(f'Total word count:             {total_word_count}')
+    print("Word-level accuracy:          {}".format(correct_word_count / total_word_count))
 
 
 if __name__ == '__main__':

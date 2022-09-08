@@ -1,59 +1,56 @@
 # xycrf
-A CRF package supporting true feature functions of both observations and labels (X and Y).
+A first-order linear-chain CRF package supporting true feature functions of both observations and tags (X and Y),
+per the original (some might say painfully naive) CRF formalism.
 
-THIS IS IN EARLY STAGES OF DEVELOPMENT. NOTHING WORKS YET. All we know for sure is this
-approach is completely impractical for something like the CONLL chunking task. Thousands
-of boolean functions for every word/ngram in a corpus is too much for our naive implementation
-to support.
-
-Word hyphenation seems to be a reasonable test case.
 
 ## Usage
  
-You can test this code with [CoNLL 2000 chunking data](https://www.clips.uantwerpen.be/conll2000/chunking/).
+You can test this code with [Trogkanis/Elkan hyphenation datasets](https://cseweb.ucsd.edu/~elkan/hyphenation/),
+provided in the data/hyphen directory.
 
 ### Training
-
 ```sh
-# format
-python3 conll_model.py --train <train_file> --output <model_file>
-
 # example
-python3 conll_model.py --train data/chunking_small/train.data small_model.json
+$ python3 hyphen_model.py --train data/hyphen/english/all.data --epochs 3 --rate 1 \
+    --attenuation 0.1 --output /tmp/hyphen_english_model_3ep.dill
 ```
 
-### Test
+### Testing
 
 ```sh
-# format
-python3 conll_model.py --test <test_file> --input <trained_model_file>
-
 # example
-python3 conll_model.py --test data/chunking_small/test.data --input small_model.json
+$ python3 hyphen_model.py --test data/hyphen/english/all.data --test_size 0.20 \
+    --input /tmp/hyphen_engl_model_3ep_ts20.dill
 ```
 
 ## Benchmark Result
 
-- Data: CoNLL corpus
-    - [data/chunking_full](https://github.com/dvdrndlph/xycrf/data/chunking_full): original data (8936 sentences)
-    - [data/chunking_small](https://github.com/dvdrndlph/xycrf/data/chunking_small): sampled data (77 sentences)
-- Compared with [CRF++](http://taku910.github.io/crfpp/)
-- Use feature set
+Data: The Trogkanis/Elkan English dataset, provided in [data/hyphen/english](https://github.com/dvdrndlph/xycrf/data/hyphen/english).
+This contains 66,001 hyphenated English words. 
+
+Our model compares unfavorably to the published results in
+the [Trogkanis/Elkan](https://aclanthology.org/P10-1038/) ACL paper. We also run about four times slower on hardware
+that is ten years newer. But it does inspire some confidence in the underlying CRF implementation.
 
 **Accuracy**
 
-|                | xycrf    |  CRF++   |
-|--------------- |----------| -------- |
-| chunking_full  | 0.000000 | 0.960128 |
-| chunking_small | 0.000000 | 0.889474 |
+|                   | T/E       | Ours   |
+|-------------------|-----------|--------|
+| Word-level        | 96.33%    | 45.64% |
+| Character-level   |           | 89.83% |
+| Feature functions | 2,916,942 | 11     |
+
 
 ## License
 MIT
 
-## Credits
-Some methods and program structure inspired by (borrowed from) Seong-Jin Kim's [crf package](https://github.com/lancifollia/crf).
-Many thanks.
+## Thanks
+Inspired by Seong-Jin Kim's [crf package](https://github.com/lancifollia/crf).
+Many thanks to the lectures and notes of Charles Elkan, who finally explained all this well enough
+for me to be able to do this.
 
 ## References
-- An Introduction to Conditional Random Fields / Charles Sutton, Andrew McCallum/ 2010
-- Log-Linear Models and Conditional Random Fields / Charles Elkan / 2014
+- <div class="csl-entry">Sutton, C., &#38; McCallum, A. (2011). An introduction to conditional random fields. <i>Foundations and Trends in Machine Learning</i>, <i>4</i>(4), 267–373. https://doi.org/10.1561/2200000013</div>
+- <div class="csl-entry">Elkan, C. (2014). <i>Log-linear models and conditional random fields</i>. http://cseweb.ucsd.edu/~elkan/250B/CRFs.pdf</div>
+- <div class="csl-entry">Elkan, C. (2014). <i>Maximum Likelihood, Logistic Regression, and Stochastic Gradient Training</i>.</div>
+- Trogkanis, N., &#38; Elkan, C. (2010). Conditional Random Fields for Word Hyphenation. <i>Proceedings of the 48th Annual Meeting of the Association for Computational Linguistics</i>, 366–374.
