@@ -46,8 +46,8 @@ MIT
 
 ## Thanks
 Inspired by Seong-Jin Kim's [crf package](https://github.com/lancifollia/crf).
-Many thanks to the lectures and notes of Charles Elkan, who finally explained all this well enough
-for me to be able to do this.
+Thanks to the lectures and notes of Charles Elkan, who finally explained all this well enough
+for me to be able to do this. Thanks to Oscar Laird for the conversations.
 
 ## References
 - <div class="csl-entry">Sutton, C., &#38; McCallum, A. (2011). An introduction to conditional random fields. <i>Foundations and Trends in Machine Learning</i>, <i>4</i>(4), 267–373. https://doi.org/10.1561/2200000013</div>
