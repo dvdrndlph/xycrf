@@ -49,7 +49,8 @@ MIT
 ## Thanks
 Inspired by Seong-Jin Kim's [crf package](https://github.com/lancifollia/crf).
 Thanks to the lectures and notes of Charles Elkan, who finally explained all this well enough
-for me to be able to do this. Thanks to Oscar Laird for the conversations.
+for me to be able to do this. Thanks to Oscar Laird, Paul Landes, and Abhinav Kumar
+for the conversations.
 
 ## References
 - Elkan, C. (2014). <i>Log-linear models and conditional random fields</i>. http://cseweb.ucsd.edu/~elkan/250B/CRFs.pdf
